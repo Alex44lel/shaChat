@@ -131,6 +131,52 @@ class UI:
         tk.Button(self.root, text="Login",
                   command=self.display_login).pack(pady=12)
 
+    def display_chat(self):
+        self.clear_screen()
+        self.user_list_frame = tk.Frame(
+            self.root, bg="lightgray")
+        self.user_list_frame.pack(
+            side=tk.LEFT, fill=tk.Y, expand=False)
+
+        self.users = ["Alice", "Bob", "Charlie charlie charlie", "Dave"]
+        self.user_buttons = []
+
+        tk.Label(self.user_list_frame, text="Available users",
+                 bg="lightgray", font=("Vedana", 11, "bold")).pack(pady=10)
+        for user in self.users:
+            button = tk.Button(self.user_list_frame, text=user,
+                               command=lambda u=user: self.load_chat(u))
+            button.pack(fill=tk.X, pady=0, padx=20)
+            self.user_buttons.append(button)
+
+        # Chat display frame
+        self.chat_display_frame = tk.Frame(self.root, bg="white")
+        self.chat_display_frame.pack(
+            side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.chat_label = tk.Label(
+            self.chat_display_frame, text="Select a user to start chatting", bg="white", font=("Vedana", 14, "bold"))
+        self.chat_label.pack(pady=10)
+
+        self.chat_text = tk.Text(
+            self.chat_display_frame, state=tk.DISABLED, wrap=tk.WORD, relief="solid", bd=1)
+        self.chat_text.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # Message entry frame
+        self.message_frame = tk.Frame(self.chat_display_frame, bg="white")
+        self.message_frame.pack(fill=tk.X, padx=10, pady=7)
+
+        self.message_entry = tk.Text(
+            self.message_frame, relief="solid", bd=1, height=3)
+        self.message_entry.pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+
+        self.send_button = tk.Button(
+            self.message_frame, text="Send", command=self.send_message)
+        self.send_button.pack(side=tk.RIGHT)
+
+        self.current_user = None
+
     def login(self):
         print("LOGGING IN...")
         result = self.logic.login(
@@ -138,6 +184,7 @@ class UI:
 
         if result["status"]:
             messagebox.showinfo("Success", result["message"])
+            self.display_chat()
         else:
             messagebox.showerror("Error", result["message"])
 
