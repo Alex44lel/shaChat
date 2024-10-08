@@ -5,6 +5,7 @@ from flask_socketio import SocketIO, send
 import os
 import base64
 from cryptography.hazmat.primitives import hashes
+from encryption import Encryption
 
 
 class ChatApp:
@@ -12,6 +13,8 @@ class ChatApp:
 
         self.app = Flask(__name__)
         self.socketio = SocketIO(self.app)
+        # on initialization private and public keys are generated for asymetric encryption
+        self.encryption = Encryption()
 
         self.db_conexion = sqlite3.connect(
             "shachat.db", check_same_thread=False)
@@ -20,7 +23,7 @@ class ChatApp:
         # check if tables exist
 
         self.db_manager.execute(
-            '''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, salt TEXT, session_token TEXT)''')
+            '''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT, salt TEXT, session_token TEXT, sym_key TEXT)''')
         self.db_conexion.commit()
 
         self._create_restfull_routes()
@@ -30,9 +33,32 @@ class ChatApp:
 
     # cripto----
     def _create_restfull_routes(self):
+        @self.app.route('/get-public-key', methods=['GET'])
+        def getPublicKey():
+            key = self.encryption.export_public_key()
+            return jsonify({"public-key": key}), 200
+
+        @self.app.route('/receive-symmetric-key-from-client', methods=['POST'])
+        def receiveSymmetricKeyFromClient():
+            data_encrypted = request.get_json().get("cypher_body")
+            data = self.encryption.decrypt_body(data_encrypted, "asym")
+            print(data)
+            username = data.get('username')
+            sym_key = data.get('sym_key')
+            print(username)
+            print(sym_key)
+            try:
+                self.db_manager.execute('UPDATE users SET sym_key=? WHERE username=?', (
+                    sym_key, username))
+                self.db_conexion.commit()
+                return jsonify({'message': 'Sym key received'}), 200
+            except sqlite3.IntegrityError:
+                return jsonify({'message': 'Error saving sym key'}), 409
+
         @self.app.route('/register', methods=['POST'])
         def register():
-            data = request.get_json()
+            data_encrypted = request.get_json().get("cypher_body")
+            data = self.encryption.decrypt_body(data_encrypted, "asym")
             username = data.get('username')
             password = data.get('password')
             hashed_password, salt = self.hash_salt(password, None)
@@ -47,9 +73,11 @@ class ChatApp:
 
         @self.app.route('/login', methods=['POST'])
         def login():
-            data = request.get_json()
+            data_encrypted = request.get_json().get("cypher_body")
+            data = self.encryption.decrypt_body(data_encrypted, "asym")
             username = data.get('username')
             password = data.get('password')
+            print(password)
             self.db_manager.execute(
                 'SELECT password, salt FROM users WHERE username=?', (username,))
             user = self.db_manager.fetchone()
@@ -67,7 +95,6 @@ class ChatApp:
             return jsonify({'message': 'Invalid credentials'}), 401
 
     def hash_salt(self, password, salt):
-        print(type(salt))
         if salt is None:
             salt = os.urandom(32)
         else:

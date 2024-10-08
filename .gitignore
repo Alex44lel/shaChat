@@ -1,3 +1,4 @@
 env
-tests-ignorar
-shachat.db
+src/tests-ignorar
+src/server/shachat.db
+src/client/json_keys.json

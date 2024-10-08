@@ -1,6 +1,10 @@
 import tkinter as tk
 from tkinter import messagebox
+from jsonManager import JsonManager
 import requests
+from encryption import Encryption
+import json
+
 
 SERVER = "http://localhost:5000"
 
@@ -9,19 +13,49 @@ class ChatLogic:
     def __init__(self):
         self.session = None
         self.username = None
-        pass
+        self.json_keys = JsonManager("json_keys.json")
+        self.encryption = Encryption()
+        self.server_public_key = None
+        self._getServerPublicKey()
+
+    def _getServerPublicKey(self):
+        response = requests.get(
+            f"{SERVER}/get-public-key")
+
+        if response.status_code == 200:
+            self.server_public_key = response.json().get("public-key")
+            print(self.server_public_key)
+
+        else:
+            print("unable to get public key")
+
+    def sendSymmetricKeyToServer(self, username):
+        key = self.encryption.generate_symetric_key()
+        self.json_keys.add_entry("server", key)
+
+        body = {"username": username, "sym_key": key}
+        response = requests.post(
+            f"{SERVER}/receive-symmetric-key-from-client", json=self.encryption.get_encrypted_body(body, "asym", self.server_public_key))
+
+        if response.status_code == 200:
+            self.json_keys.add_entry("server", key)
+
+        return [response.status_code, response.json().get('message')]
 
     def login(self, username, password):
-
         if not username or not password:
             return {"status": 0, "message": "you must cover all the inputs"}
 
+        body = {"username": username, "password": password}
         response = requests.post(
-            f"{SERVER}/login", json={"username": username, "password": password})
+            f"{SERVER}/login", json=self.encryption.get_encrypted_body(body, "asym", self.server_public_key))
 
         if response.status_code == 200:
             self.username = username
             self.session_token = response.json().get('session_token')
+            result = self.sendSymmetricKeyToServer(username)
+            if result[0] != 200:
+                return {"status": 0, "message": result[1]}
             return {"status": 1, "message": response.json().get('message')}
         else:
             return {"status": 0, "message": response.json().get('message')}
@@ -33,8 +67,9 @@ class ChatLogic:
         if password != repeat_password:
             return {"status": 0, "message": "passwords do not match"}
 
+        body = {"username": username, "password": password}
         response = requests.post(
-            f"{SERVER}/register", json={"username": username, "password": password})
+            f"{SERVER}/register", json=self.encryption.get_encrypted_body(body, "asym", self.server_public_key))
 
         if response.status_code == 201:
             return {"status": 1, "message": response.json().get('message')}
@@ -47,7 +82,7 @@ class UI:
         self.root = root
         self.logic = ChatLogic()
         self.root.title("SHAchat, secure chatting for free")
-        self.root.geometry("600x450")
+        self.root.geometry("1200x600")
 
         self.display_login()
 
@@ -100,6 +135,7 @@ class UI:
         print("LOGGING IN...")
         result = self.logic.login(
             self.username_val.get(), self.password_val.get())
+
         if result["status"]:
             messagebox.showinfo("Success", result["message"])
         else:
