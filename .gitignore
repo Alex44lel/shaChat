@@ -1,4 +1,13 @@
 env
 src/tests-ignorar
 src/server/shachat.db
-src/client/json_keys.json
+src/server/private_asym.pem
+src/server/public_asym.pem
+src/server/json_keys.json
+
+
+src/client/json_keys_[0-9]*.json
+src/client/private_asym.pem
+src/client/public_asym.pem
+src/client/session_token.json
+
