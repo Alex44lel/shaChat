@@ -29,7 +29,7 @@ class JsonManager():
 
     def search_entry(self, key):
         data = self.load_data()
-        return data.get(key, "Key not found")
+        return data.get(key, False)
 
     def delete_entry(self, key):
         data = self.load_data()

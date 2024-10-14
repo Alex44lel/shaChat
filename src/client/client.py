@@ -8,12 +8,14 @@ from tkinter import ttk
 import time
 import os
 import threading
+import socketio
+from collections import deque
 
 
 SERVER = "http://localhost:5000"
 
 
-class ChatLogic:
+class AppLogic:
     def __init__(self):
         self.session_token = None
         self.username = None
@@ -21,18 +23,89 @@ class ChatLogic:
         self.json_keys = None
         self.encryption = Encryption()
         self.server_public_key = None
+        self.socket = None
         self._getServerPublicKey()
+
+        # this is the message queue to update the UI chat
+        self.message_queue = deque()
 
     def _getServerPublicKey(self):
         response = requests.get(
             f"{SERVER}/get-public-key")
 
         if response.status_code == 200:
-            self.server_public_key = response.json().get("public-key")
+            self.server_public_key = response.json().get("public_key")
             print("SERVER PUBLIC KEY:", self.server_public_key)
 
         else:
             print("unable to get public key")
+
+    def connect_to_socket(self):
+
+        self.socket = socketio.Client()
+
+        @self.socket.event
+        def connect():
+            print("Socket has been connected")
+
+        @self.socket.event
+        def disconnect():
+            print("Socket disconnected")
+
+        @self.socket.on("receive_message")
+        def on_message(data):
+
+            decrypted_message = self.encryption.decrypt_body(
+                data["message"], "sym", "json", self.json_keys.search_entry(str(data["origin_user_id"])))
+
+            self.message_queue.append({'origin_user_id': data['origin_user_id'], "origin_user_name": data['origin_user_name'],
+                                       'message': decrypted_message})
+
+        @self.socket.on("send_private_key")
+        def on_send_private_key(data):
+            print(f"Received private_key")
+
+            sym_key = self.encryption.asymmetric_decrypt(
+                data["cypher_sym_key"])
+
+            self.json_keys.add_entry(data["origin_user_id"], sym_key)
+
+        try:
+
+            self.socket.connect(
+                f"{SERVER}?user_id={self.user_id}")
+        except Exception as e:
+            print("Unable to connect to the socket:", e)
+
+    def getOrExchangeSymKeysEndToEnd(self, dest_user_id):
+        val = self.json_keys.search_entry(str(dest_user_id))
+        if val:
+            print("EXCHANGE WAS ALREADY PRODUCED")
+            return self.json_keys.search_entry(str(dest_user_id))
+
+        response = requests.get(
+            f"{SERVER}/get-public-key-from-target-user/{dest_user_id}")
+
+        dest_user_public_key = response.json().get("public_key")
+
+        if response.status_code == 400:
+            return False
+
+        sym_key = self.encryption.generate_symetric_key()
+        self.json_keys.add_entry(str(dest_user_id), sym_key)
+        # body = {"origin_user_id": origin_user_id, "sym_key": sym_key}
+        # get other user public key
+
+        print("PUBLIC KEY RECEIVED FROM DEST USER")
+        cypher_sym_key = self.encryption.asymmetric_encrypt_with_external_public_key(
+            dest_user_public_key, sym_key)
+
+        print("SOCKET EMMITED")
+
+        self.socket.emit('exchange_keys', {
+            "user_id": self.user_id, "dest_user_id": dest_user_id, "cypher_sym_key": cypher_sym_key})
+
+        return sym_key
 
     def getAllUsers(self):
         response = requests.get(
@@ -45,7 +118,48 @@ class ChatLogic:
         else:
             print("unable to get all users")
 
+    def send_message_via_socket(self, receiver_id, message):
+        print("MENSAJE ENVIADO")
+        # encript message
+        encrypted_message = self.encryption.get_encrypted_body(
+            message, "sym", self.json_keys.search_entry(str(receiver_id)), str(self.user_id))
+
+        if self.socket:
+            self.socket.emit('message_sent', {
+                             "origin_user_id": self.user_id, "origin_user_name": self.username, 'receiver_id': receiver_id, "message": encrypted_message})
+
+    def update_focused_chat(self, current_chat_id):
+        self.socket.emit('update_focused_chat', {
+            "user_id": self.user_id, "current_chat_id": current_chat_id})
+
+    def get_message_from_queue(self, current_chat_user_id):
+        try:
+            if str(self.message_queue[0]["origin_user_id"]) != str(current_chat_user_id):
+                return None
+            else:
+                message_data = self.message_queue.popleft()
+            return message_data
+        except Exception as e:
+            # print(e)
+            return None
+
+    def get_conversation(self, other_user_id):
+        try:
+            response = requests.get(
+                f"{SERVER}/get-conversation/{self.user_id}/{other_user_id}")
+
+            if response.status_code == 200:
+                response_body = response.json()
+                return response_body.get("conversation")
+            else:
+                print(f"Could not fetch conversations")
+                return []
+        except Exception as e:
+            print(f"Error fetching conversation: {e}")
+            return []
+
     def checkSessionToken(self, display_login, display_chat, log_out):
+
         try:
             with open("session_token.json", "r") as session_token_file:
                 data = json.load(session_token_file)
@@ -70,6 +184,8 @@ class ChatLogic:
                 self.session_token = session_token
                 print("session is valid")
                 self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
+                threading.Thread(target=self.connect_to_socket).start()
+                self.sendClientKeysToServer()
                 display_chat()
 
             else:
@@ -82,14 +198,20 @@ class ChatLogic:
             display_login()
             return
 
-    def sendSymmetricKeyToServer(self):
+    def sendClientKeysToServer(self):
         # TODO: ENCRYPT USING ASSYMETRIC
         key = self.encryption.generate_symetric_key()
         print("THIS IS THE KEY IN THE CLIENT:", key)
+        public_key = self.encryption.export_public_key(
+        )
         body = {"username": self.username,
                 "sym_key": key, "user_id": self.user_id}
+
+        body_encrypted = self.encryption.get_encrypted_body(
+            body, "asym", self.server_public_key)
+        body_encrypted["public_key"] = public_key
         response = requests.post(
-            f"{SERVER}/receive-symmetric-key-from-client", json=self.encryption.get_encrypted_body(body, "asym", self.server_public_key))
+            f"{SERVER}/receive-client-keys", json=body_encrypted)
 
         if response.status_code == 200:
             self.json_keys.add_entry("server", key)
@@ -149,8 +271,8 @@ class ChatLogic:
                 json.dump({"session_token": self.session_token},
                           session_token_file)
             self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
-            result = self.sendSymmetricKeyToServer()
-            print("PARA RETORNAR")
+            result = self.sendClientKeysToServer()
+            threading.Thread(target=self.connect_to_socket).start()
             if result[0] != 200:
                 return {"status": 0, "message": result[1]}
             return {"status": 1, "message": response_body.get('message')}
@@ -179,12 +301,29 @@ class ChatLogic:
 class UI:
     def __init__(self, root):
         self.root = root
-        self.logic = ChatLogic()
+        self.app_logic = AppLogic()
         self.root.title("SHAchat, secure chatting for free")
         self.root.geometry("1200x600")
+        self.current_chat_user_id = None
 
-        self.logic.checkSessionToken(
+        self.app_logic.checkSessionToken(
             self.display_login, self.display_chat, self.log_out)
+
+        self.check_for_messages()
+
+    def check_for_messages(self):
+        if self.current_chat_user_id != None:
+            message_data = self.app_logic.get_message_from_queue(
+                self.current_chat_user_id)
+            if message_data:
+                origin_user_id = message_data['origin_user_id']
+                message = message_data['message']
+                origin_user_name = message_data['origin_user_name']
+                print(f"Got a message from {origin_user_name}: {message}")
+                self.display_message(origin_user_name, message, "other")
+
+        # Call every 500ms
+        self.root.after(500, self.check_for_messages)
 
     def clear_screen(self):
         for widget in self.root.winfo_children():
@@ -193,16 +332,13 @@ class UI:
     def display_loading(self):
         self.clear_screen()
 
-        # Create a frame for the loading screen
         loading_frame = tk.Frame(self.root, bg="white")
         loading_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Add a label to show the loading message
         loading_label = tk.Label(
             loading_frame, text="Loading, please wait...", font=("Verdana", 16), bg="white")
         loading_label.pack(pady=20)
 
-        # Optionally, you can add an animated progress bar or a spinning text effect
         progress = ttk.Progressbar(loading_frame, mode='indeterminate')
         progress.pack(pady=20, padx=20)
         progress.start()
@@ -256,13 +392,14 @@ class UI:
             side=tk.LEFT, fill=tk.Y, expand=False)
 
         # load users from database
-        self.users = self.logic.getAllUsers()
+        self.users = self.app_logic.getAllUsers()
         # ["Alice", "Bob", "Charlie charlie charlie", "Dave"]
 
         self.user_buttons = []
 
-        tk.Label(self.user_list_frame, text="Available users",
+        tk.Label(self.user_list_frame, text=f"Available users",
                  bg="lightgray", font=("Vedana", 9, "bold")).pack(pady=10, padx=3)
+
         for user in self.users:
             # user[0] is the id and user[1] is the name
             button = tk.Button(self.user_list_frame, text=user[1],
@@ -280,9 +417,8 @@ class UI:
         self.header_frame = tk.Frame(self.chat_display_frame, bg="white")
         self.header_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        # Use pack with side=tk.LEFT to place them next to each other
         self.chat_label = tk.Label(
-            self.header_frame, text="Select a user to start chatting", bg="white", font=("Vedana", 14, "bold"))
+            self.header_frame, text=f"Hi {self.app_logic.username}! Select a user to start chatting", bg="white", font=("Vedana", 14, "bold"))
         # Add padding to separate the label from the button
         self.chat_label.pack(side=tk.LEFT, padx=(10, 10))
 
@@ -307,13 +443,71 @@ class UI:
             self.message_frame, text="Send", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
 
-        self.current_user = None
+        self.current_chat_user_id = None
 
     def send_message(self):
-        pass
+        message = self.message_entry.get("1.0", tk.END).strip()
+        if message and self.current_chat_user_id:
+            self.app_logic.send_message_via_socket(
+                self.current_chat_user_id, message)
+            self.message_entry.delete("1.0", tk.END)
+            self.display_message("You", message, "self")
 
-    def load_chat(self):
-        pass
+    def display_message(self, sender, message, origin):
+        self.chat_text.tag_config(
+            "self", foreground="blue", font=("Verdana", 10))
+        self.chat_text.tag_config(
+            "other", foreground="green", font=("Verdana", 10))
+
+        self.chat_text.config(state=tk.NORMAL)
+        self.chat_text.insert(tk.END, f"{sender}: {message}\n", (origin,))
+        self.chat_text.config(state=tk.DISABLED)
+
+    def load_chat(self, id, name):
+        self.current_chat_user_id = id
+
+        sym_key = self.app_logic.getOrExchangeSymKeysEndToEnd(
+            self.current_chat_user_id)
+        if not sym_key:
+            messagebox.showwarning(
+                "Warning", "The other user must be connected to innitiate an end to end chat")
+            return None
+        # Update focused chat on the server
+        self.app_logic.update_focused_chat(self.current_chat_user_id)
+
+        # exchange private key if it has not been done
+
+        print("END EXCHANGE: ", sym_key)
+        # Update the UI to reflect the selected chat
+        self.chat_label.config(
+            text=f"Hi {self.app_logic.username}! Chatting with {name}")
+
+        # Clear the chat window
+        self.chat_text.config(state=tk.NORMAL)
+        self.chat_text.delete("1.0", tk.END)
+
+        # Fetch and display the conversation
+
+        conversation = self.app_logic.get_conversation(
+            self.current_chat_user_id)
+        for message_data in conversation:
+            origin_user_id = message_data["origin_user_id"]
+
+            decrypted_message = self.app_logic.encryption.decrypt_body(
+                message_data["message"], "sym", "json", self.app_logic.json_keys.search_entry(str(self.current_chat_user_id)))
+
+            if str(origin_user_id) == str(
+                    self.app_logic.user_id):
+                sender_name = "You"
+                origin = "self"
+            else:
+                sender_name = name
+                origin = "other"
+
+            self.display_message(sender_name, decrypted_message, origin)
+
+        # Disable the chat window for new messages
+        self.chat_text.config(state=tk.DISABLED)
 
     def log_out(self, session_check=False):
         self.display_loading()
@@ -322,7 +516,7 @@ class UI:
         log_out_thread.start()
 
     def _log_out_thread(self):
-        self.logic.logout()
+        self.app_logic.logout()
         self.display_login()
 
     def login(self):
@@ -335,7 +529,7 @@ class UI:
         self.display_loading()
 
     def _login_thread(self, username, password):
-        result = self.logic.login(username, password)
+        result = self.app_logic.login(username, password)
         print(result["message"])
 
         # After the login logic completes, update the UI in the main thread
@@ -357,7 +551,7 @@ class UI:
         register_thread.start()
 
     def _register_thread(self, username, password, repeat_password):
-        result = self.logic.register(
+        result = self.app_logic.register(
             username, password, repeat_password)
         if result["status"]:
             self.display_login()
@@ -371,4 +565,5 @@ class UI:
 if __name__ == "__main__":
     root = tk.Tk()
     app = UI(root)
+
     root.mainloop()

@@ -150,8 +150,9 @@ class Encryption:
             return payload.json()
 
     def decrypt_body(self, payload, method, payload_type, key=None):
-        payload = self.json_tranformer(
-            payload, payload_type)
+        if payload_type != "json":
+            payload = self.json_tranformer(
+                payload, payload_type)
 
         if method == "asym":
             cypher_message = payload.get("cypher_message")

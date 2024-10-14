@@ -7,6 +7,11 @@ from cryptography.hazmat.primitives import hashes
 import base64
 import json
 import os
+import colorama
+from termcolor import colored
+from datetime import datetime
+
+colorama.init()
 
 
 class Encryption:
@@ -14,8 +19,45 @@ class Encryption:
         # RSA keys
         self.private_key_path = private_key_path
         self.public_key_path = public_key_path
+        self.owner = "SERVER"
 
         self._generate_asym_keys()
+
+    from termcolor import colored
+
+    def log_message(self, state, action_type, key_length, algorithm, message, destination, level="INFO"):
+        owner_text = colored(f"[{self.owner}", "magenta", attrs=["bold"])
+        destination_text = colored(f"{destination}]", "orange", attrs=["bold"])
+
+        level_colors = {
+            "INFO": colored(level, "blue", attrs=["bold"]),
+            "WARNING": colored(level, "yellow", attrs=["bold"]),
+            "ERROR": colored(level, "red", attrs=["bold"])
+        }
+        level_text = level_colors.get(level, colored(level, "white"))
+
+        timestamp = colored(f"{datetime.now()}", "green")
+        base_message = f"{timestamp} {owner_text} to {destination_text} {level_text}"
+
+        if state == "Starting":
+            state_text = colored(state, "cyan", attrs=[
+                "bold"])
+            full_message = (
+                f"{base_message}: {state_text} {action_type} of {message} "
+                f"using {algorithm} with key length {key_length} bits"
+            )
+        elif state == "End":
+            state_text = colored(state, "green", attrs=["bold"])
+            full_message = (
+                f"{base_message}: {state_text} of {action_type} with result: {message} "
+                f"using {algorithm} with key length {key_length} bits"
+            )
+
+    # Print the formatted log message
+    print(full_message)
+
+    # Print the styled log message
+    # print(f"{datetime.now()} {title_text} {level_text}: {message_text}")
 
     def _generate_asym_keys(self):
         if os.path.exists(self.private_key_path) and os.path.exists(self.public_key_path):
@@ -150,8 +192,9 @@ class Encryption:
             return payload.json()
 
     def decrypt_body(self, payload, method, payload_type, key=None):
-        payload = self.json_tranformer(
-            payload, payload_type)
+        if payload_type != "json":
+            payload = self.json_tranformer(
+                payload, payload_type)
 
         if method == "asym":
             cypher_message = payload.get("cypher_message")
