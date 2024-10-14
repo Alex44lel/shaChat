@@ -72,11 +72,10 @@ class ChatApp:
             sym_key = data.get('sym_key')
             self.public_keys[str(user_id)] = public_key
 
-            print(self.public_keys[str(user_id)])
-            print("THIS IS THE SYM KEY IN THE SERVER:", sym_key)
-            print("THIS IS THE ASYM KEY IN THE SERVER:", public_key)
+            # print(self.public_keys[str(user_id)])
+            # print("THIS IS THE SYM KEY IN THE SERVER:", sym_key)
+            # print("THIS IS THE ASYM KEY IN THE SERVER:", public_key)
 
-            print(username)
             try:
                 self.db_manager.execute('UPDATE users SET sym_key=? WHERE username=?', (
                     sym_key, username))
@@ -123,7 +122,7 @@ class ChatApp:
             user_public_key = request.get_json().get("user_public_key")
             data = self.encryption.decrypt_body(request, "asym", "request")
             session_token = data["session_token"]
-            print("USER PUBLIC KEY:", user_public_key)
+            # print("USER PUBLIC KEY:", user_public_key)
 
             try:
                 result = self.db_manager.execute('SELECT id,username,session_token_date FROM users WHERE session_token = ?', (
@@ -134,12 +133,10 @@ class ChatApp:
                 if not result:
                     return jsonify({"message": "Invalid session token"}), 401
 
-                print(result)
                 user_id = result[0]
                 username = result[1]
                 session_token_date_string = result[2]
 
-                print(session_token_date_string)
                 session_token_date = datetime.strptime(
                     session_token_date_string, '%Y-%m-%d %H:%M:%S')
 
@@ -148,7 +145,6 @@ class ChatApp:
                     timedelta(seconds=200000)
 
                 if current_time > token_expiration_date:
-                    print(current_time, token_expiration_date)
                     res_encrypted = self.encryption.get_encrypted_body(
                         {"message": "Session token is expired, ohhh :("}, "asym", user_public_key)
                     return jsonify(res_encrypted), 401
@@ -201,7 +197,6 @@ class ChatApp:
             data = self.encryption.decrypt_body(request, "asym", "request")
             username = data.get('username')
             password = data.get('password')
-            print(password)
             self.db_manager.execute(
                 'SELECT password, salt FROM users WHERE username=?', (username,))
             user = self.db_manager.fetchone()

@@ -35,7 +35,7 @@ class AppLogic:
 
         if response.status_code == 200:
             self.server_public_key = response.json().get("public_key")
-            print("SERVER PUBLIC KEY:", self.server_public_key)
+            # print("SERVER PUBLIC KEY:", self.server_public_key)
 
         else:
             print("unable to get public key")
@@ -177,7 +177,7 @@ class AppLogic:
             response_body = self.encryption.decrypt_body(
                 response, "asym", "response")
 
-            print(response_body.get('message'))
+            # print(response_body.get('message'))
             self.username = response_body.get("username")
             self.user_id = response_body.get("user_id")
             if response.status_code == 200:
@@ -480,7 +480,7 @@ class UI:
 
         # exchange private key if it has not been done
 
-        print("END EXCHANGE: ", sym_key)
+        # print("END EXCHANGE: ", sym_key)
         # Update the UI to reflect the selected chat
         self.chat_label.config(
             text=f"Hi {self.app_logic.username}! Chatting with {name}")
@@ -533,7 +533,7 @@ class UI:
 
     def _login_thread(self, username, password):
         result = self.app_logic.login(username, password)
-        print(result["message"])
+        # print(result["message"])
 
         # After the login logic completes, update the UI in the main thread
         if result["status"]:
