@@ -184,6 +184,7 @@ class AppLogic:
                 self.session_token = session_token
                 print("session is valid")
                 self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
+                self.encryption.owner = self.username
                 threading.Thread(target=self.connect_to_socket).start()
                 self.sendClientKeysToServer()
                 display_chat()
@@ -267,6 +268,8 @@ class AppLogic:
             self.session_token = response_body.get('session_token')
             print(
                 f'username: {self.username} with user_id {self.user_id} has just logged in')
+
+            self.encryption.owner = self.username
             with open("session_token.json", "w") as session_token_file:
                 json.dump({"session_token": self.session_token},
                           session_token_file)

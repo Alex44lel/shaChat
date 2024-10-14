@@ -15,7 +15,7 @@ class ChatApp:
         self.socketio = SocketIO(self.app)
         # on initialization private and public keys are generated for asymetric encryption if they do not exists
 
-        self.encryption = Encryption()
+        self.encryption = Encryption("SERVER")
         self.json_keys = JsonManager("json_keys.json")
         self.db_conexion = sqlite3.connect(
             "shachat.db", check_same_thread=False)

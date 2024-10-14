@@ -15,19 +15,18 @@ colorama.init()
 
 
 class Encryption:
-    def __init__(self, private_key_path="private_asym.pem", public_key_path="public_asym.pem"):
+    def __init__(self, owner="UNAUTHENTICATED USER", private_key_path="private_asym.pem", public_key_path="public_asym.pem"):
         # RSA keys
         self.private_key_path = private_key_path
         self.public_key_path = public_key_path
-        self.owner = "SERVER"
+        self.owner = owner
 
         self._generate_asym_keys()
 
     from termcolor import colored
 
-    def log_message(self, state, action_type, key_length, algorithm, message, destination, level="INFO"):
-        owner_text = colored(f"[{self.owner}", "magenta", attrs=["bold"])
-        destination_text = colored(f"{destination}]", "orange", attrs=["bold"])
+    def log_message(self, state=None, action_type=None, key_length=None, algorithm=None, message=None, level="INFO"):
+        owner_text = colored(f"[{self.owner}]", "magenta", attrs=["bold"])
 
         level_colors = {
             "INFO": colored(level, "blue", attrs=["bold"]),
@@ -37,7 +36,7 @@ class Encryption:
         level_text = level_colors.get(level, colored(level, "white"))
 
         timestamp = colored(f"{datetime.now()}", "green")
-        base_message = f"{timestamp} {owner_text} to {destination_text} {level_text}"
+        base_message = f"{timestamp} {owner_text} {level_text}"
 
         if state == "Starting":
             state_text = colored(state, "cyan", attrs=[
@@ -53,11 +52,13 @@ class Encryption:
                 f"using {algorithm} with key length {key_length} bits"
             )
 
-    # Print the formatted log message
-    print(full_message)
+        elif state == "other":
+            action_type = colored(action_type, "yellow", attrs=["bold"])
+            full_message = (
+                f"{base_message}: {action_type} {message} "
+            )
 
-    # Print the styled log message
-    # print(f"{datetime.now()} {title_text} {level_text}: {message_text}")
+        print(full_message)
 
     def _generate_asym_keys(self):
         if os.path.exists(self.private_key_path) and os.path.exists(self.public_key_path):
@@ -71,6 +72,8 @@ class Encryption:
             )
             self.public_key = self.private_key.public_key()
             self.save_keys_asym()
+            self.log_message("other", f"Asym Key generation", None,
+                             None, f"using RSA, result: {self.public_key} of lenght {len(self.public_key)*8}")
 
     def save_keys_asym(self):
         # saving private key
@@ -91,12 +94,17 @@ class Encryption:
                     format=serialization.PublicFormat.SubjectPublicKeyInfo
                 )
             )
+        self.log_message("other", f"Asym keys saved", None,
+                         None, None)
 
     def regenerate_keys_asym(self):
         if os.path.exists(self.private_key_path):
             os.remove(self.private_key_path)
         if os.path.exists(self.public_key_path):
             os.remove(self.public_key_path)
+
+        self.log_message("other", f"Regenerate asym keys", None,
+                         None, None)
 
         self._generate_asym_keys()
 
@@ -106,17 +114,26 @@ class Encryption:
                 file.read(),
                 password=None
             )
+
         return private_asym_key
 
     def generate_symetric_key(self):
         # symmetric key in base64 bytes
+
         key = ChaCha20Poly1305.generate_key()
         key = base64.b64encode(key).decode('utf-8')
+        self.log_message("other", f"Symetric Key generation", None,
+                         None, f"using ChaCha20Poly1305, result: {key} of lenght {len(key)*8}")
         return key
 
     # fernet already returns things in base64
 
     def symmetric_encrypt_authenticated(self, text, key, aad):
+
+        # ADD LOG:
+        self.log_message("Starting", "Encryption", len(
+            key)*8, "ChaCha20Poly1305", text)
+
         # we might need to convert the key back to bytes
         key = base64.b64decode(key.encode("utf-8"))
         chacha = ChaCha20Poly1305(key)
@@ -130,11 +147,19 @@ class Encryption:
         cypher_text = chacha.encrypt(nonce, text, aad)
         cypher_text_encoded = base64.b64encode(cypher_text).decode("utf-8")
 
+        # ADD LOG:
+        self.log_message("End", "Encryption", len(key)*8,
+                         "ChaCha20Poly1305", cypher_text_encoded)
+
         return [cypher_text_encoded, encoded_nonce, encoded_aad]
         # cipher_text = Fernet(key).encrypt(text.encode("utf-8"))
         # return cipher_text.decode("utf-8")
 
     def symmetric_decrypt(self, cypher_text_encoded, key, encoded_nonce, encoded_aad):
+        # ADD LOG:
+        self.log_message("Starting", "Decryption", len(
+            key)*8, "ChaCha20Poly1305", cypher_text_encoded)
+
         # Decrypting using Fernet
         key = base64.b64decode(key.encode("utf-8"))
         chacha = ChaCha20Poly1305(key)
@@ -142,10 +167,18 @@ class Encryption:
         aad = base64.b64decode(encoded_aad.encode("utf-8"))
         cypher_text = base64.b64decode(cypher_text_encoded.encode("utf-8"))
         original_text = chacha.decrypt(nonce, cypher_text, aad)
-        return original_text.decode('utf-8')
+        original_text = original_text.decode("utf-8")
+        # ADD LOG:
+        self.log_message("End", "Decryption", len(key)*8,
+                         "ChaCha20Poly1305", original_text)
+
+        return original_text
 
     def asymmetric_encrypt_with_external_public_key(self, key_pem, text):
         # Encrypting using the public key with (PKCS1v15 padding)
+        # ADD LOG:
+        self.log_message("Starting", "Asymmetric Encryption",
+                         2048, "RSA", text)
 
         public_key = serialization.load_pem_public_key(
             key_pem.encode('utf-8')
@@ -154,24 +187,42 @@ class Encryption:
             text.encode(),
             padding.PKCS1v15()
         )
-        return base64.b64encode(cipher_text).decode('utf-8')
+        result = base64.b64encode(cipher_text).decode('utf-8')
+
+        # ADD LOG:
+
+        self.log_message("End", "Asymmetric Encryption", 2048,
+                         "RSA", result)
+
+        return result
 
     def asymmetric_decrypt(self, cipher_text):
+        # ADD LOG:
+        self.log_message("Starting", "Asymmetric Decryption",
+                         2048, "RSA", cipher_text)
+
         # Decrypting using the private key (PKCS1v15 padding)
         cipher_text = base64.b64decode(cipher_text)
         original_text = self.private_key.decrypt(
             cipher_text,
             padding.PKCS1v15()
         )
-        return original_text.decode('utf-8')
+        result = original_text.decode('utf-8')
+        # ADD LOG:
+        self.log_message("End", "Asymmetric Decryption", 2048,
+                         "RSA", result)
+
+        return result
 
     def export_public_key(self):
         # Export in PEM format
-        public_key_bytes = self.public_key.public_bytes(
+        public_key = self.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ).decode('utf-8')
-        return public_key_bytes
+        self.log_message("other", f"Exporting public key", None,
+                         None, f"result: {public_key} of lenght {len(public_key)*8}")
+        return public_key
 
     def get_encrypted_body(self, body, method, key, aad=None):
         if method == "asym":
@@ -214,6 +265,7 @@ class Encryption:
         return message_decrypted
 
     def hash_salt(self, password, salt):
+
         if salt is None:
             salt = os.urandom(32)
         else:
@@ -226,4 +278,6 @@ class Encryption:
         password_hashed_base64 = base64.b64encode(
             password_hashed).decode('utf-8')
 
+        self.log_message("other", f"Password hashed", None,
+                         None, f"result: {password_hashed_base64}")
         return password_hashed_base64, salt_base64
