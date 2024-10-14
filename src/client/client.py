@@ -24,6 +24,7 @@ class AppLogic:
         self.encryption = Encryption()
         self.server_public_key = None
         self.socket = None
+        self.new_registration = False
         self._getServerPublicKey()
 
         # this is the message queue to update the UI chat
@@ -47,10 +48,17 @@ class AppLogic:
         @self.socket.event
         def connect():
             print("Socket has been connected")
+            self.sendClientKeysToServer()
 
         @self.socket.event
         def disconnect():
             print("Socket disconnected")
+
+        @self.socket.on("user_registered")
+        def on_user_registered(data):
+            print("OTHER USER REGISTERED")
+            if self.user_id != None:
+                self.new_registration = True
 
         @self.socket.on("receive_message")
         def on_message(data):
@@ -308,11 +316,13 @@ class UI:
         self.root.title("SHAchat, secure chatting for free")
         self.root.geometry("1200x600")
         self.current_chat_user_id = None
+        self.current_chat_user_name = None
 
         self.app_logic.checkSessionToken(
             self.display_login, self.display_chat, self.log_out)
 
         self.check_for_messages()
+        self.check_for_new_registrations()
 
     def check_for_messages(self):
         if self.current_chat_user_id != None:
@@ -327,6 +337,19 @@ class UI:
 
         # Call every 500ms
         self.root.after(500, self.check_for_messages)
+
+    def check_for_new_registrations(self):
+        if self.app_logic.new_registration == True:
+            print("Updating ui")
+            self.app_logic.new_registration = False
+            self.clear_screen()
+            self.display_chat()
+
+            if self.current_chat_user_id != None:
+                self.load_chat(self.current_chat_user_id,
+                               self.current_chat_user_name)
+
+        self.root.after(1000, self.check_for_new_registrations)
 
     def clear_screen(self):
         for widget in self.root.winfo_children():
@@ -446,8 +469,6 @@ class UI:
             self.message_frame, text="Send", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
 
-        self.current_chat_user_id = None
-
     def send_message(self):
         message = self.message_entry.get("1.0", tk.END).strip()
         if message and self.current_chat_user_id:
@@ -468,9 +489,12 @@ class UI:
 
     def load_chat(self, id, name):
         self.current_chat_user_id = id
+        self.current_chat_user_name = name
 
         sym_key = self.app_logic.getOrExchangeSymKeysEndToEnd(
             self.current_chat_user_id)
+
+        print(sym_key)
         if not sym_key:
             messagebox.showwarning(
                 "Warning", "The other user must be connected to innitiate an end to end chat")

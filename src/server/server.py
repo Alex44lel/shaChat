@@ -41,6 +41,7 @@ class ChatApp:
 
         self.focused_chats = {}
         self.public_keys = {}
+        self.connected_users = []
         self._create_restfull_routes()
         self._create_chat_routes()
 
@@ -57,6 +58,7 @@ class ChatApp:
         @self.app.route('/get-public-key-from-target-user/<string:dest_user_id>', methods=['GET'])
         def getPublicKeyFromTargetUser(dest_user_id):
             try:
+                print(self.public_keys.keys())
                 key = self.public_keys[dest_user_id]
                 return jsonify({"public_key": key}), 200
             except Exception:
@@ -112,6 +114,14 @@ class ChatApp:
                 self.db_manager.execute('INSERT INTO users (username, password, salt) VALUES (?, ?, ?)', (
                     username, hashed_password, salt))
                 self.db_conexion.commit()
+
+                for i in self.connected_users:
+                    self.socketio.emit('user_registered', {
+                        'username': username
+                    }, to=i)
+                    print(i)
+                print("USER REGISTERED")
+
                 return jsonify({'message': 'Registration successful'}), 201
             except sqlite3.IntegrityError:
                 return jsonify({'message': 'Username already exists'}), 409
@@ -258,13 +268,18 @@ class ChatApp:
 
             print(f"{user_id} has connected {type(user_id)}")
             self.focused_chats[str(user_id)] = None
+            if str(user_id) not in self.connected_users:
+                self.connected_users.append(str(user_id))
             join_room(user_id)
 
         @self.socketio.on("disconnect")
         def handle_disconnection():
             user_id = request.args.get('user_id')
             print(f"{user_id} has disconnected")
-            del self.focused_chats[str(user_id)]
+            if str(user_id) in self.focused_chats:
+                del self.focused_chats[str(user_id)]
+            if str(user_id) in self.connected_users:
+                self.connected_users.remove(str(user_id))
             leave_room(user_id)
 
         @self.socketio.on("exchange_keys")

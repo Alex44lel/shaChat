@@ -201,12 +201,14 @@ class Encryption:
         self.log_message("Starting", "Asymmetric Decryption",
                          2048, "RSA", cipher_text)
 
+        print(cipher_text)
         # Decrypting using the private key (PKCS1v15 padding)
         cipher_text = base64.b64decode(cipher_text)
         original_text = self.private_key.decrypt(
             cipher_text,
             padding.PKCS1v15()
         )
+        print(original_text)
         result = original_text.decode('utf-8')
         # ADD LOG:
         self.log_message("End", "Asymmetric Decryption", 2048,
