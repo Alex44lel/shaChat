@@ -73,7 +73,7 @@ class Encryption:
             self.public_key = self.private_key.public_key()
             self.save_keys_asym()
             self.log_message("other", f"Asym Key generation", None,
-                             None, f"using RSA, result: {self.public_key} of lenght {len(self.public_key)*8}")
+                             None, f"using RSA, result: {self.public_key} of lenght 2048")
 
     def save_keys_asym(self):
         # saving private key
@@ -95,7 +95,7 @@ class Encryption:
                 )
             )
         self.log_message("other", f"Asym keys saved", None,
-                         None, None)
+                         None, "")
 
     def regenerate_keys_asym(self):
         if os.path.exists(self.private_key_path):
@@ -104,7 +104,7 @@ class Encryption:
             os.remove(self.public_key_path)
 
         self.log_message("other", f"Regenerate asym keys", None,
-                         None, None)
+                         None, "")
 
         self._generate_asym_keys()
 
