@@ -536,6 +536,7 @@ class UI:
         # Disable the chat window for new messages
         self.chat_text.config(state=tk.DISABLED)
 
+#display para salir de la sesión
     def log_out(self, session_check=False):
         self.display_loading()
         log_out_thread = threading.Thread(
