@@ -12,7 +12,7 @@ import socketio
 from collections import deque
 
 
-SERVER = "http://localhost:5000"
+SERVER = "http://localhost:44444"
 
 
 class AppLogic:
@@ -30,6 +30,7 @@ class AppLogic:
         # this is the message queue to update the UI chat
         self.message_queue = deque()
 
+    #Método para obtener la contraseña pública del server
     def _getServerPublicKey(self):
         response = requests.get(
             f"{SERVER}/get-public-key")
@@ -207,35 +208,50 @@ class AppLogic:
             display_login()
             return
 
+    #Método para crear las claves del cliente y enviarlas al servidor
     def sendClientKeysToServer(self):
         # TODO: ENCRYPT USING ASSYMETRIC
+        #Primero generamos la clave simétrica del cliente
         key = self.encryption.generate_symetric_key()
         print("THIS IS THE KEY IN THE CLIENT:", key)
+        #Obtenemos la clave pública del cliente
         public_key = self.encryption.export_public_key(
         )
+
+        #Creamos un diccionario con los siguientes datos y lo encriptamos y posteriormente
+        #le añadimos la clave pública del cliente
         body = {"username": self.username,
                 "sym_key": key, "user_id": self.user_id}
 
         body_encrypted = self.encryption.get_encrypted_body(
             body, "asym", self.server_public_key)
         body_encrypted["public_key"] = public_key
+
+        #Enviamos los datos al servidor y guardamos el resultado en response
         response = requests.post(
             f"{SERVER}/receive-client-keys", json=body_encrypted)
 
+        #Si es exitosa guardamos en un diccionario la clave cliente-servidor
         if response.status_code == 200:
             self.json_keys.add_entry("server", key)
 
         return [response.status_code, response.json().get('message')]
 
+    #Método para cerrar sesión del cliente en el servidor
     def logout(self):
+        #Cuerpo con forma de diccionario donde se almacenan el session_token y el id de usuario
         body = {"session_token": self.session_token, "user_id": self.user_id}
+        #Encriptamos el body con la clave pública del servidor
         body_encrypted = self.encryption.get_encrypted_body(
             body, "asym", self.server_public_key)
+        #Añadimos al cuerpo la clave pública del clientre
         body_encrypted["user_public_key"] = self.encryption.export_public_key(
         )
         # TODO: ENCRYPT USING ASSYMETRIC
+        #Se envia una solicitud al server con el cuerpo encriptado y guardamos la respuesta en response
         response = requests.post(
             f"{SERVER}/logout", json=body_encrypted)
+        #Desciframos el body
         response_body = self.encryption.decrypt_body(
             response, "asym", "response")
 
@@ -250,23 +266,31 @@ class AppLogic:
         self.user_id = None
         self.json_keys = None
 
+        #borramos el path del session_token
         if os.path.exists("session_token.json"):
             os.remove("session_token.json")
 
+    #Método para realizar el login del cliente
     def login(self, username, password):
+        #Caso en el que no se introducen todos los campos
         if not username or not password:
             return {"status": 0, "message": "you must cover all the inputs"}
 
+        
+        #Creamos un diccionario con los campos usaername t¡y password y encriptamos el mensaje con la public key del server
         body = {"username": username, "password": password}
         body_encrypted = self.encryption.get_encrypted_body(
             body, "asym", self.server_public_key)
+        #Añadimos al diccionario la clave pública del cliente
         body_encrypted["user_public_key"] = self.encryption.export_public_key(
         )
 
         # TODO: ENCRYPT USING ASSYMETRIC
+        #Enviamos el body encriptedo al server y almacenamos el resultado de la solicitud en response
         response = requests.post(
             f"{SERVER}/login", json=body_encrypted)
 
+        #El cliente descifra la respuesta del servidor
         response_body = self.encryption.decrypt_body(
             response, "asym", "response")
 
@@ -278,11 +302,17 @@ class AppLogic:
                 f'username: {self.username} with user_id {self.user_id} has just logged in')
 
             self.encryption.owner = self.username
+            #Guardamos el session token en un archivo Json
             with open("session_token.json", "w") as session_token_file:
                 json.dump({"session_token": self.session_token},
                           session_token_file)
+            #Se crea un archivo JSON específico para cada usuario que contenga las claves de cifrado
+            #necesarias para la comunicación segura entre el cliente y el servidor.
             self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
+
+            #Generamos las claves del cliente y se envian al server
             result = self.sendClientKeysToServer()
+            # # # #
             threading.Thread(target=self.connect_to_socket).start()
             if result[0] != 200:
                 return {"status": 0, "message": result[1]}
@@ -290,25 +320,33 @@ class AppLogic:
         else:
             return {"status": 0, "message": response_body.get('message')}
 
+    #Método para realizar el registro del cliente
     def register(self, username, password, repeat_password):
+        #Si alguno de los campos no está relleno salta mensaje
         if not username or not password or not repeat_password:
             return {"status": 0, "message": "you must cover all the inputs"}
 
+        #Si las contraseñas no coinciden salta mensaje
         if password != repeat_password:
             return {"status": 0, "message": "passwords do not match"}
 
+        #Creamos un cuerpo con forma de diccionario metiendo el usuario y la contraseña
         body = {"username": username, "password": password}
         # TODO: ENCRYPT USING ASSYMETRIC
 
+        #Hacemos un post al server y encriptamos el body con la clave pública del server y guardamos la respuesta a la solicitud en response
         response = requests.post(
             f"{SERVER}/register", json=self.encryption.get_encrypted_body(body, "asym", self.server_public_key))
 
+        #Si status_code == 201, es que el registro fue exitoso y devolvemos un diccionario con status 1
         if response.status_code == 201:
             return {"status": 1, "message": response.json().get('message')}
+        #Caso de registro no exitoso
         else:
             return {"status": 0, "message": response.json().get('message')}
 
 
+#Clase encargada en la interfaz
 class UI:
     def __init__(self, root):
         self.root = root

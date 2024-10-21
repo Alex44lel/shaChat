@@ -46,7 +46,7 @@ class ChatApp:
         self._create_chat_routes()
 
     def run(self):
-        self.socketio.run(self.app, host="localhost", port=5000, debug=True)
+        self.socketio.run(self.app, host="localhost", port=44444, debug=True)
 
     def _create_restfull_routes(self):
         @self.app.route('/get-public-key', methods=['GET'])
