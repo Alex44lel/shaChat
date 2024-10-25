@@ -57,10 +57,12 @@ class ChatApp:
         # this is used in the exchange_keys method on the client
         @self.app.route('/get-public-key-from-target-user/<string:dest_user_id>', methods=['GET'])
         def getPublicKeyFromTargetUser(dest_user_id):
+            #Intenta obtener la clave pública del usuario de destino y la devuelve en formato json si existe junto al código 200 (éxito)
             try:
                 print(self.public_keys.keys())
                 key = self.public_keys[dest_user_id]
                 return jsonify({"public_key": key}), 200
+            #Si no la obtiene devuelve una excepción
             except Exception:
                 return jsonify({"message": "User must be connected to initiate encripted chat"}), 400
 
@@ -91,15 +93,20 @@ class ChatApp:
         @self.app.route("/get-all-users-names/<string:user_id>", methods=["GET"])
         def getAllUserNames(user_id):
             try:
+                #En result almacenamos una tupla con todos los nombres de los usuarios distintos de user_id, asociados a su respectivo id
                 result = self.db_manager.execute(
                     'SELECT id, username FROM users WHERE id != ?', (user_id,)).fetchall()
 
                 # print("THIS IS THE KEY IN THE SERVER:",self.json_keys.search_entry(user_id))
 
+                #Encriptamos result con la clave simétrica
                 res = self.encryption.get_encrypted_body(
                     {"all_users": result}, "sym", self.json_keys.search_entry(user_id), "server")
 
+                #Devolvemos la respuesta en formato json y el código de éxito en la operación
                 return jsonify(res), 200
+            
+            #Si hay algún error de sql, lanzamos excepción
             except sqlite3.Error:
                 jsonify({'message': 'Error in the database'}), 401
 
@@ -127,33 +134,43 @@ class ChatApp:
                 return jsonify({'message': 'Username already exists'}), 409
 
         @self.app.route('/check-session-token', methods=['POST'])
+        #Método para verificar si el session token es válido
         def checkSessionToken():
-            # get token from the database
+            #Se extrae la clave pública del cliente del cuerpo de la solicitud, que se envía en formato JSON
             user_public_key = request.get_json().get("user_public_key")
+            #El servidor desencripta el cuerpo de la solicitud que contiene el token de sesión, utilizando la encriptación asimétrica
             data = self.encryption.decrypt_body(request, "asym", "request")
+            #Se extrae el token
             session_token = data["session_token"]
             # print("USER PUBLIC KEY:", user_public_key)
 
+            #Se intenta buscar el session_token en la base de datos para verificar si es válido
             try:
                 result = self.db_manager.execute('SELECT id,username,session_token_date FROM users WHERE session_token = ?', (
                     session_token,))
+                #Se almacena en result la primera fila que coincide con la consulta
                 result = self.db_manager.fetchone()
                 print("result", result)
                 # check the date and determine if it is valid
                 if not result:
                     return jsonify({"message": "Invalid session token"}), 401
 
+                #data from data base
                 user_id = result[0]
                 username = result[1]
                 session_token_date_string = result[2]
 
+                #convierte la fecha de la cadena a un objeto de tipo datetime
                 session_token_date = datetime.strptime(
                     session_token_date_string, '%Y-%m-%d %H:%M:%S')
 
+                #calculo de fecha actual y fecha de expiración
                 current_time = datetime.now()
                 token_expiration_date = session_token_date + \
                     timedelta(seconds=200000)
 
+                #se comproeba si el token sigue vigente
+                
                 if current_time > token_expiration_date:
                     res_encrypted = self.encryption.get_encrypted_body(
                         {"message": "Session token is expired, ohhh :("}, "asym", user_public_key)
@@ -234,7 +251,9 @@ class ChatApp:
             return jsonify(res_encrypted), 401
 
         @self.app.route('/get-conversation/<string:origin_user_id>/<string:receiver_user_id>', methods=['GET'])
+        #Método para recuperar el historial de mensajes cifrados entre dos usuarios y devolverlo en formato json
         def get_conversation(origin_user_id, receiver_user_id):
+            #Consulta sql para recuperar todos los mensajes entre los dos usuarios y los ordena por timestamp
             try:
                 self.db_manager.execute('''
                     SELECT origin_user_id, receiver_user_id, cypher_message, timestamp,encoded_nonce,encoded_aad
@@ -244,8 +263,10 @@ class ChatApp:
                     ORDER BY timestamp ASC
                 ''', (origin_user_id, receiver_user_id, receiver_user_id, origin_user_id))
 
+                #Almacena todos los mensajes en messages que es una tupla con los datos de la conversación
                 messages = self.db_manager.fetchall()
 
+                #Cada tupla se agrega a la lista conversation, que al final contendrá toda la conversación entre los dos usuarios en el formato adecuado.
                 conversation = []
                 for msg in messages:
                     conversation.append({
@@ -255,6 +276,7 @@ class ChatApp:
                         'timestamp': msg[3]
                     })
 
+                #Devolvemos conversation en formato json y el status de éxito.
                 return jsonify({'conversation': conversation}), 200
 
             except sqlite3.Error as e:
@@ -289,16 +311,21 @@ class ChatApp:
             leave_room(user_id)
 
         @self.socketio.on("exchange_keys")
+        #Método para intercambiar claves simétricas a través del socket
         def handle_exchange_keys(data):
             print("HANDLING EXCHANGE KEYS")
+            #Extraemos de data (es un diccionario) los datos de los distintos campos
             user_id = str(data['user_id'])
             cypher_sym_key = data['cypher_sym_key']
             receiver_id = str(data['dest_user_id'])
+            #El server va a emitir a través de un socket el envio de la clave simétrica cifrada al cliente de destino
             emit('send_private_key', {'origin_user_id': user_id,
                                       'cypher_sym_key': cypher_sym_key}, room=receiver_id)
 
         @self.socketio.on("message_sent")
+        #Método que se encarga de recibir el mensaje cifrado, almacenarlo en la bb. ddd. y reenviarlo al destinatario si está disponible
         def handle_sent_message(data):
+            #Extraemos los datos de data y los almacenamos en variables
             receiver_id = str(data['receiver_id'])
             message = data['message']
             origin_user_id = str(data['origin_user_id'])
@@ -309,25 +336,30 @@ class ChatApp:
             # Emit the message to the recipient's room
             print("receiver_id:" + receiver_id, " ", type(receiver_id))
 
+            #Verifica si el usuario receptor está activo en un chat y comprueba si este chat es el del emisor
             if receiver_id in self.focused_chats and self.focused_chats[receiver_id] == origin_user_id:
+                #Si se da la condición emitimos el envio del mensaje al receptor
                 emit('receive_message', {'origin_user_id': origin_user_id, "origin_user_name": origin_user_name,
                                          'message': message}, room=receiver_id)
 
+            # save message on database
             self.db_manager.execute('''
                 INSERT INTO chats (origin_user_id, receiver_user_id, cypher_message, encoded_nonce, encoded_aad)
                 VALUES (?, ?, ?,?,?)
             ''', (origin_user_id, receiver_id, message["cypher_message"], message["encoded_nonce"], message["encoded_aad"]))
             self.db_conexion.commit()
-            # save on database
 
             # TODO: we could notify
 
         @self.socketio.on("update_focused_chat")
+        #Método que se encarga de actualizar el chat en el que está activo el usuario actualmente.
         def handle_update_focused_chat(data):
+            #Extraemos el id del usuario y el id del chat con el que el usuario está enfocando actualmente.
             current_chat_id = str(data['current_chat_id'])
             user_id = str(data['user_id'])
             print(f"focus chat of {user_id} is {current_chat_id}")
 
+            #Actualizamos el diccionario que indica en que chat está activo el usuario
             self.focused_chats[str(user_id)] = str(current_chat_id)
 
 
