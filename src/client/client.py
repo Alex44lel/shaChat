@@ -70,6 +70,7 @@ class AppLogic:
             self.message_queue.append({'origin_user_id': data['origin_user_id'], "origin_user_name": data['origin_user_name'],
                                        'message': decrypted_message})
 
+        #Debería ser symetric key
         @self.socket.on("send_private_key")
         def on_send_private_key(data):
             print(f"Received private_key")
@@ -312,7 +313,7 @@ class AppLogic:
 
             #Generamos las claves del cliente y se envian al server
             result = self.sendClientKeysToServer()
-            # # # #
+            #Aquí se crea un thread para ejecutar el socket entre el cliente y el servidor
             threading.Thread(target=self.connect_to_socket).start()
             if result[0] != 200:
                 return {"status": 0, "message": result[1]}
@@ -376,6 +377,7 @@ class UI:
         # Call every 500ms
         self.root.after(500, self.check_for_messages)
 
+    #Verifica si hay un nuevo registro y si es correcto pasa a la ventana de chats
     def check_for_new_registrations(self):
         if self.app_logic.new_registration == True:
             print("Updating ui")
@@ -389,6 +391,7 @@ class UI:
 
         self.root.after(1000, self.check_for_new_registrations)
 
+    #Método para limmpiar la pantalla (Lo usaremos siempre que cambiemos de pantalla)
     def clear_screen(self):
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -448,6 +451,7 @@ class UI:
         tk.Button(self.root, text="Login",
                   command=self.display_login).pack(pady=12)
 
+    #Método para configurar y mostrar la interfaz de usuario del chat
     def display_chat(self):
         self.clear_screen()
         self.user_list_frame = tk.Frame(
@@ -517,9 +521,9 @@ class UI:
 
     def display_message(self, sender, message, origin):
         self.chat_text.tag_config(
-            "self", foreground="blue", font=("Verdana", 10))
+            "self", foreground="yellow", font=("Verdana", 10))
         self.chat_text.tag_config(
-            "other", foreground="green", font=("Verdana", 10))
+            "other", foreground="orange", font=("Verdana", 10))
 
         self.chat_text.config(state=tk.NORMAL)
         self.chat_text.insert(tk.END, f"{sender}: {message}\n", (origin,))

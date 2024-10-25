@@ -261,15 +261,21 @@ class ChatApp:
                 # print(f"Database error: {e}")
                 return jsonify({'message': 'Error retrievin conversation'}), 500
 
+    #Método que se encarga de crear las rutas y la lógica de los WebSockets
     def _create_chat_routes(self):
         @self.socketio.on("connect")
+        #Función que se encarga de manejar lo que sucede cuando un cliente se conecta
         def handle_connection():
+            #El ID del usuario se obtiene de los parámetros de la URL que se envían cuando el cliente se conecta al servidor
             user_id = request.args.get('user_id')
 
             print(f"{user_id} has connected {type(user_id)}")
+            #En este caso indicamos que el usuario no está activo dentro de ningún chat actualmente
             self.focused_chats[str(user_id)] = None
+            #Si el usuario no aparece como usuario conectado (que es lo lógico pues se acaba de conectar), lo añadimos a la lista
             if str(user_id) not in self.connected_users:
                 self.connected_users.append(str(user_id))
+            #Asignamos al usuario una sala con su id
             join_room(user_id)
 
         @self.socketio.on("disconnect")
