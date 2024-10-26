@@ -417,16 +417,22 @@ class UI:
         self.current_chat_user_id = None
         self.current_chat_user_name = None
 
+        #Verificamos si el usuario tiene un token activo, dependiendo de ello cargamos la pantalla de los chats, o de login
         self.app_logic.checkSessionToken(
             self.display_login, self.display_chat, self.log_out)
 
+        #Verifican continuamente si hay mensajes nuevos o nuevos registros
         self.check_for_messages()
         self.check_for_new_registrations()
 
+    #Método para comprobar si hay mensajes nuevos
     def check_for_messages(self):
+        #Si el usuario está metido en algún chat, busca en la cola de mensajes si hay algún mensaje del cliente con el id del chat en el que está
+        #metido el cliente
         if self.current_chat_user_id != None:
             message_data = self.app_logic.get_message_from_queue(
                 self.current_chat_user_id)
+            #Si encuentra algún mensaje en la cola perteneciente al cliente del current chat, separa la información del diccionario y muesta el mensaje
             if message_data:
                 origin_user_id = message_data['origin_user_id']
                 message = message_data['message']
@@ -439,16 +445,20 @@ class UI:
 
     #Verifica si hay un nuevo registro y si es correcto pasa a la ventana de chats
     def check_for_new_registrations(self):
+        #Si hay un nuevo registro actualizamos la pantalla de chats
         if self.app_logic.new_registration == True:
             print("Updating ui")
             self.app_logic.new_registration = False
             self.clear_screen()
             self.display_chat()
 
+            #Si el cliente estaba metido en un chat, le llevamos a esta pantalla por lo que se mantendrá en la conversación y las altas nuevas
+            #no afectarán a su conversación
             if self.current_chat_user_id != None:
                 self.load_chat(self.current_chat_user_id,
                                self.current_chat_user_name)
 
+         # Call every 1000ms
         self.root.after(1000, self.check_for_new_registrations)
 
     #Método para limmpiar la pantalla (Lo usaremos siempre que cambiemos de pantalla)
@@ -456,6 +466,7 @@ class UI:
         for widget in self.root.winfo_children():
             widget.destroy()
 
+    #Método para mostrar una pantalla de carga
     def display_loading(self):
         self.clear_screen()
 
@@ -470,6 +481,7 @@ class UI:
         progress.pack(pady=20, padx=20)
         progress.start()
 
+    #Método para la pantalla del login de un usuario
     def display_login(self):
         self.clear_screen()
 
@@ -488,6 +500,7 @@ class UI:
         tk.Button(self.root, text="Register",
                   command=self.display_register).pack()
 
+    #Método para la pantalla del registro de un nuevo usuario
     def display_register(self):
         self.clear_screen()
 
@@ -514,6 +527,7 @@ class UI:
     #Método para configurar y mostrar la interfaz de usuario del chat
     def display_chat(self):
         self.clear_screen()
+        #Contenedor que contendrá la lista de usuarios disponibles para chatear
         self.user_list_frame = tk.Frame(
             self.root, bg="lightgray")
         self.user_list_frame.pack(
@@ -547,6 +561,7 @@ class UI:
 
         self.chat_label = tk.Label(
             self.header_frame, text=f"Hi {self.app_logic.username}! Select a user to start chatting", bg="white", font=("Vedana", 14, "bold"))
+        
         # Add padding to separate the label from the button
         self.chat_label.pack(side=tk.LEFT, padx=(10, 10))
 
@@ -571,32 +586,43 @@ class UI:
             self.message_frame, text="Send", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
 
+    #Se encarga de gestionar el envio de mensajes
     def send_message(self):
+        #Obtiene el contenido del cuadro de texto donde el cliente escribe el mensaje
         message = self.message_entry.get("1.0", tk.END).strip()
+        #Si existe mensaje y el cliente está en un chat procedemos a usar el socket para el envio del mensaje
         if message and self.current_chat_user_id:
             self.app_logic.send_message_via_socket(
                 self.current_chat_user_id, message)
+            #Una vez se envia el mensaje lo borramos de la caja de texto
             self.message_entry.delete("1.0", tk.END)
+            #Se muestra el mensaje en la ventana del chat
             self.display_message("You", message, "self")
 
+    #Método para mostrar los mensajes
     def display_message(self, sender, message, origin):
+        #Configuramos el estilo de los mensajes tanto del usuario activo como el del otro user del chat
         self.chat_text.tag_config(
             "self", foreground="yellow", font=("Verdana", 10))
         self.chat_text.tag_config(
             "other", foreground="orange", font=("Verdana", 10))
 
+        #Ponemos el estado en normal, agregamos el mensaje y luego lo ponemos en DISABLED para que no se pueda modificar
         self.chat_text.config(state=tk.NORMAL)
         self.chat_text.insert(tk.END, f"{sender}: {message}\n", (origin,))
         self.chat_text.config(state=tk.DISABLED)
 
     def load_chat(self, id, name):
+        #Se establece el id y el nombre del usuario con el que se va a hablar
         self.current_chat_user_id = id
         self.current_chat_user_name = name
 
+        #Se gestiona el intercambio de claves
         sym_key = self.app_logic.getOrExchangeSymKeysEndToEnd(
             self.current_chat_user_id)
 
         print(sym_key)
+        #Para que se de este intercambio de claves, deben de estar conectados los dos usuarios
         if not sym_key:
             messagebox.showwarning(
                 "Warning", "The other user must be connected to innitiate an end to end chat")
@@ -615,10 +641,10 @@ class UI:
         self.chat_text.config(state=tk.NORMAL)
         self.chat_text.delete("1.0", tk.END)
 
-        # Fetch and display the conversation
-
+        #Obtenemos el historial de la conversaión
         conversation = self.app_logic.get_conversation(
             self.current_chat_user_id)
+        #Desciframos los mensajes y en función del emisor o el receptor añadimos esa cabezera para luego mostrarlo
         for message_data in conversation:
             origin_user_id = message_data["origin_user_id"]
 
@@ -649,16 +675,20 @@ class UI:
         self.app_logic.logout()
         self.display_login()
 
+    #Se encarga del inicio de sesión
     def login(self):
         print("LOGGING IN...")
+        #Coge los parámetros que ha pasado el user por pantalla
         username = self.username_val.get()
         password = self.password_val.get()
+        #Creamos un thread para el login
         login_thread = threading.Thread(
             target=self._login_thread, args=(username, password))
         login_thread.start()
         self.display_loading()
 
     def _login_thread(self, username, password):
+        #Se almacena en result un diccionario con la información sobre si el inicio de sesión fue exitoso o no
         result = self.app_logic.login(username, password)
         # print(result["message"])
 
@@ -669,7 +699,8 @@ class UI:
             self.root.after(1, lambda: messagebox.showerror(
                 "Error", result["message"]))
             self.display_login()
-
+   
+    #Se encarga del registro, tiene la misma lógica que los dos métodos anteriores con la variación que estos son para el resgistro
     def register(self):
         print("Registering...")
         username = self.username_val.get()
