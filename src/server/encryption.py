@@ -23,7 +23,7 @@ colorama.init()
 
 
 class Encryption:
-    def __init__(self, owner="UNAUTHENTICATED USER", private_key_path="private_asym_pre.pem", public_key_path="public_asym_pre.pem"):
+    def __init__(self, owner="SERVER", private_key_path="private_asym_pre.pem", public_key_path="public_asym_pre.pem"):
         # RSA keys
         self.private_key_path = private_key_path
         self.public_key_path = public_key_path
@@ -178,22 +178,29 @@ class Encryption:
 
     # fernet already returns things in base64
 
+    # Método que realiza un cifrado simetrico autenticado, text es el mensaje a cifrar, key es la clave que usará para el cifrado y
+    # add son datos adicionales que se incluyen en el proceso de autentificación pero no se cifran
     def symmetric_encrypt_authenticated(self, text, key, aad):
 
         # ADD LOG:
         self.log_message("Starting", "Encryption", len(
             key)*8, "ChaCha20Poly1305", text)
 
-        # we might need to convert the key back to bytes
+        # pasamos la cadena de texto a binario para volverlo a pasar a texto para un correcto cifrado posterior
         key = base64.b64decode(key.encode("utf-8"))
+        # Algoritmo ChaCha
         chacha = ChaCha20Poly1305(key)
+        # Genera un número arbitrario que solo se usa una vez, esto gRntiza que el mismo mensaje difrado con la misma
+        # clave de un resultado diferente
         nonce = os.urandom(12)
         encoded_nonce = base64.b64encode(nonce).decode(
             "utf-8")  # this is send in the request
+        # Additional data
         aad = aad.encode("utf-8")
         encoded_aad = base64.b64encode(aad).decode(
             "utf-8")
         text = text.encode("utf-8")
+        # Se realiza el cifrado del texto con ChaCha junto nonce y add.
         cypher_text = chacha.encrypt(nonce, text, aad)
         cypher_text_encoded = base64.b64encode(cypher_text).decode("utf-8")
 
@@ -205,16 +212,19 @@ class Encryption:
         # cipher_text = Fernet(key).encrypt(text.encode("utf-8"))
         # return cipher_text.decode("utf-8")
 
+    # Método de desencriptado simetrico
     def symmetric_decrypt(self, cypher_text_encoded, key, encoded_nonce, encoded_aad):
         # ADD LOG:
         self.log_message("Starting", "Decryption", len(
             key)*8, "ChaCha20Poly1305", cypher_text_encoded)
 
-        # Decrypting using Fernet
+        # Hacemos el chacha de la key
         key = base64.b64decode(key.encode("utf-8"))
         chacha = ChaCha20Poly1305(key)
+        # Desciframos el nonce y el add
         nonce = base64.b64decode(encoded_nonce.encode("utf-8"))
         aad = base64.b64decode(encoded_aad.encode("utf-8"))
+        # Pasamos el texto cifrado al texto original
         cypher_text = base64.b64decode(cypher_text_encoded.encode("utf-8"))
         original_text = chacha.decrypt(nonce, cypher_text, aad)
         original_text = original_text.decode("utf-8")
@@ -224,15 +234,19 @@ class Encryption:
 
         return original_text
 
+    # Método de encrptación con clave pública
     def asymmetric_encrypt_with_external_public_key(self, key_pem, text):
         # Encrypting using the public key with (PKCS1v15 padding)
         # ADD LOG:
         self.log_message("Starting", "Asymmetric Encryption",
                          2048, "RSA", text)
 
+        # Carga la clave pública desde la cadena en formato PEM
         public_key = serialization.load_pem_public_key(
             key_pem.encode('utf-8')
         )
+
+        # Usa la clave pública para cifrar el texto, siendo PKCS1v15 el esquema de relleno para el cifrado, haciendo el proceso más seguro
         cipher_text = public_key.encrypt(
             text.encode(),
             padding.PKCS1v15()
@@ -246,13 +260,14 @@ class Encryption:
 
         return result
 
+    # Método de descifrado asimétrico
     def asymmetric_decrypt(self, cipher_text):
         # ADD LOG:
         self.log_message("Starting", "Asymmetric Decryption",
                          2048, "RSA", cipher_text)
 
-        # Decrypting using the private key (PKCS1v15 padding)
         cipher_text = base64.b64decode(cipher_text)
+        # Decrypting using the private key (PKCS1v15 padding)
         original_text = self.private_key.decrypt(
             cipher_text,
             padding.PKCS1v15()
@@ -281,6 +296,7 @@ class Encryption:
                          "RSA", result)
 
         return result
+    # Método que tiene como objetivo exportar la clave pública para que sea transmitida o almacenada.
 
     def export_public_key(self):
         # Export in PEM format
@@ -292,6 +308,7 @@ class Encryption:
                          None, f"result: {public_key} of lenght {len(public_key)*8}")
         return public_key
 
+    # Método que cifra el cuerpo de datos
     def get_encrypted_body(self, body, method, key, aad=None):
         if method == "asym":
             message_encrypted = self.asymmetric_encrypt_with_external_public_key(
@@ -310,6 +327,7 @@ class Encryption:
         else:  # payload_type is response
             return payload.json()
 
+    # Método para descifrar el cuerpo
     def decrypt_body(self, payload, method, payload_type, key=None):
         if payload_type != "json":
             payload = self.json_tranformer(
@@ -332,6 +350,7 @@ class Encryption:
 
         return message_decrypted
 
+    # Método que se encarga de hashear una contraseña junto a un salt
     def hash_salt(self, password, salt):
 
         if salt is None:
@@ -339,9 +358,11 @@ class Encryption:
         else:
             salt = base64.b64decode(salt)
         salt_base64 = base64.b64encode(salt).decode('utf-8')
+        # Crea un nuevo objeto de hash utilizando el algoritmo SHA-256 y le añade la contraseña y el salt
         digest = hashes.Hash(hashes.SHA256())
         digest.update(password.encode('utf-8'))
         digest.update(salt)
+        # Finaliza el proceso de hash y genera el hash resultante
         password_hashed = digest.finalize()
         password_hashed_base64 = base64.b64encode(
             password_hashed).decode('utf-8')
