@@ -23,7 +23,7 @@ colorama.init()
 
 
 class Encryption:
-    def __init__(self, owner="SERVER", private_key_path="private_asym_pre.pem", public_key_path="public_asym_pre.pem"):
+    def __init__(self, owner="UNAUTHENTICATED USER", private_key_path="private_asym_pre.pem", public_key_path="public_asym_pre.pem"):
         # RSA keys
         self.private_key_path = private_key_path
         self.public_key_path = public_key_path
@@ -107,8 +107,8 @@ class Encryption:
             self.log_message("other", f"Asym Key generation", None,
                              None, f"using RSA, result: {self.public_key} of lenght 2048")
 
+    # Método para guardar las claves asimétricas
     def save_keys_asym(self, password=None):
-        # saving private key
         # abre (o crea si no existe) el archivo donde se guardará la clave privada en modo escritura binaria.
         with open(self.private_key_path, 'wb') as private_file:
 
@@ -125,7 +125,7 @@ class Encryption:
                 )
             )
 
-        # saving public key
+        # Guardamos la clave pública
         with open(self.public_key_path, 'wb') as public_file:
             public_file.write(
                 self.public_key.public_bytes(
@@ -165,8 +165,6 @@ class Encryption:
 
     # Método que genera la clave simetrica
     def generate_symetric_key(self):
-        # symmetric key in base64 bytes
-
         # Genera la clave simetrica con el algoritmo ChaCha20Poly1305
         key = ChaCha20Poly1305.generate_key()
         # Convierte la clave generada (es binaria) a formato Base64 y la pasa a texto gracias al decode utf-8
@@ -175,8 +173,6 @@ class Encryption:
         self.log_message("other", f"Symetric Key generation", None,
                          None, f"using ChaCha20Poly1305, result: {key} of lenght {len(key)*8}")
         return key
-
-    # fernet already returns things in base64
 
     # Método que realiza un cifrado simetrico autenticado, text es el mensaje a cifrar, key es la clave que usará para el cifrado y
     # add son datos adicionales que se incluyen en el proceso de autentificación pero no se cifran
@@ -194,7 +190,8 @@ class Encryption:
         # clave de un resultado diferente
         nonce = os.urandom(12)
         encoded_nonce = base64.b64encode(nonce).decode(
-            "utf-8")  # this is send in the request
+            "utf-8")
+        
         # Additional data
         aad = aad.encode("utf-8")
         encoded_aad = base64.b64encode(aad).decode(
@@ -209,10 +206,8 @@ class Encryption:
                          "ChaCha20Poly1305", cypher_text_encoded)
 
         return [cypher_text_encoded, encoded_nonce, encoded_aad]
-        # cipher_text = Fernet(key).encrypt(text.encode("utf-8"))
-        # return cipher_text.decode("utf-8")
 
-    # Método de desencriptado simetrico
+    #Método de desencriptado simetrico
     def symmetric_decrypt(self, cypher_text_encoded, key, encoded_nonce, encoded_aad):
         # ADD LOG:
         self.log_message("Starting", "Decryption", len(
@@ -234,9 +229,8 @@ class Encryption:
 
         return original_text
 
-    # Método de encrptación con clave pública
+    # Método de encriptación con clave pública
     def asymmetric_encrypt_with_external_public_key(self, key_pem, text):
-        # Encrypting using the public key with (PKCS1v15 padding)
         # ADD LOG:
         self.log_message("Starting", "Asymmetric Encryption",
                          2048, "RSA", text)
@@ -267,7 +261,7 @@ class Encryption:
                          2048, "RSA", cipher_text)
 
         cipher_text = base64.b64decode(cipher_text)
-        # Decrypting using the private key (PKCS1v15 padding)
+        # Desencriptamos usando la clave privada
         original_text = self.private_key.decrypt(
             cipher_text,
             padding.PKCS1v15()
@@ -299,7 +293,7 @@ class Encryption:
     # Método que tiene como objetivo exportar la clave pública para que sea transmitida o almacenada.
 
     def export_public_key(self):
-        # Export in PEM format
+        #Export in PEM format
         public_key = self.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -324,7 +318,7 @@ class Encryption:
     def json_tranformer(self, payload, payload_type):
         if payload_type == "request":
             return payload.get_json()
-        else:  # payload_type is response
+        else:
             return payload.json()
 
     # Método para descifrar el cuerpo

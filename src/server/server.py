@@ -16,6 +16,7 @@ class ChatApp:
         # Inicializamos Socket
         self.socketio = SocketIO(self.app)
         # on initialization private and public keys are generated for asymetric encryption if they do not exists
+        # Al inicializar las claves públicas y las privadas asimétricas son generadas si no existen
 
         self.encryption = Encryption("SERVER")
         self.json_keys = JsonManager("json_keys.json")
@@ -24,7 +25,7 @@ class ChatApp:
             "shachat.db", check_same_thread=False)
         self.db_manager = self.db_conexion.cursor()
 
-        # check if tables exist and create it if don´t exist
+        # Chequea la tabla y si no existe la crea
 
         self.db_manager.execute(
             '''CREATE TABLE IF NOT EXISTS users (
@@ -75,7 +76,7 @@ class ChatApp:
             key = self.encryption.export_public_key()
             return jsonify({"public_key": key}), 200
 
-        # this is used in the exchange_keys method on the client
+        # Esto es usada en el método de intercambio de claves en el cliente
         @self.app.route('/get-public-key-from-target-user/<string:dest_user_id>', methods=['GET'])
         def getPublicKeyFromTargetUser(dest_user_id):
             # Intenta obtener la clave pública del usuario de destino y la devuelve en formato json si existe junto al código 200 (éxito)
@@ -113,7 +114,8 @@ class ChatApp:
                 # self.db_manager.execute('UPDATE users SET sym_key=? WHERE username=?', (
                 #     sym_key, username))
                 # self.db_conexion.commit()
-                # sym key is stored on a json for quick access and on databse as well, might delete database storage later
+                # La clave simétrica se almacena en un archivo JSON para un acceso rápido y también en la base de datos
+                # es posible que se elimine el almacenamiento en la base de datos más adelante.
 
                 self.json_keys.add_entry(
                     str(user_id), self.encryption.encrypt_for_json_keys(sym_key))
@@ -187,11 +189,11 @@ class ChatApp:
                 # Se almacena en result la primera fila que coincide con la consulta
                 result = self.db_manager.fetchone()
                 print("result", result)
-                # check the date and determine if it is valid
+                # Verifica la fecha y determina si es válida
                 if not result:
                     return jsonify({"message": "Invalid session token"}), 401
 
-                # data from data base
+                # data de la data base
                 user_id = result[0]
                 username = result[1]
                 session_token_date_string = result[2]
@@ -211,13 +213,13 @@ class ChatApp:
                     res_encrypted = self.encryption.get_encrypted_body(
                         {"message": "Session token is expired, ohhh :("}, "asym", user_public_key)
                     return jsonify(res_encrypted), 401
-                # Token is valid
+                # Token es valido
 
                 res_encrypted = self.encryption.get_encrypted_body(
                     {"message": "Session token is valid, lets goooo", "user_id": user_id, "username": username}, "asym", user_public_key)
                 return jsonify(res_encrypted), 200
 
-            except sqlite3.Error as e:  # complete the except
+            except sqlite3.Error as e:  # Manejo de excepciones
                 print(f"Database error: {e}")
                 res_encrypted = self.encryption.get_encrypted_body(
                     {"message": "Invalid session token"}, "asym", user_public_key)
@@ -233,7 +235,7 @@ class ChatApp:
             user_id = data.get('user_id')
 
             if (user_id):
-                # delete symetric key
+                # Borramos symetric key
                 self.json_keys.delete_entry(str(user_id))
             try:
                 cursor = self.db_manager.execute(
@@ -248,10 +250,6 @@ class ChatApp:
             except Exception as e:
 
                 return jsonify({"message": "Session token is invalid"}), 401
-
-            # delete user-server symetric key
-            # delete session token from database
-            #
 
         @self.app.route('/login', methods=['POST'])
         def login():
@@ -271,7 +269,7 @@ class ChatApp:
                 # Se vuelve a calcular el hash de la contraseña proporcionada por el usuario usando la misma sal, para poder compararlo con el hash almacenado.
                 hashed_password, _ = self.encryption.hash_salt(password, salt)
                 if hashed_password == stored_password:
-                    # Generate a session token
+                    # Generamos un session token
                     session_token = str(uuid.uuid4())
 
                     # Actualizamos el session token en la bb dd
@@ -382,7 +380,7 @@ class ChatApp:
 
             print(
                 f"Message receive from {origin_user_name} to {receiver_id}")
-            # Emit the message to the recipient's room
+            # Emite el mensaje a la sala del destinatario
             print("receiver_id:" + receiver_id, " ", type(receiver_id))
 
             # Verifica si el usuario receptor está activo en un chat y comprueba si este chat es el del emisor
@@ -391,7 +389,7 @@ class ChatApp:
                 emit('receive_message', {'origin_user_id': origin_user_id, "origin_user_name": origin_user_name,
                                          'message': message}, room=receiver_id)
 
-            # save message on database
+            # Guarda mensaje en la base de datos
             self.db_manager.execute('''
                 INSERT INTO chats (origin_user_id, receiver_user_id, cypher_message, encoded_nonce, encoded_aad)
                 VALUES (?, ?, ?,?,?)

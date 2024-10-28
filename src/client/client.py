@@ -28,7 +28,7 @@ class AppLogic:
         self.new_registration = False
         self._getServerPublicKey()
 
-        # this is the message queue to update the UI chat
+        # Cola de mensajes para actualizar la interfaz
         self.message_queue = deque()
 
     # Método para obtener la contraseña pública del server
@@ -129,7 +129,6 @@ class AppLogic:
         self.json_keys.add_entry(
             str(dest_user_id), self.encryption.encrypt_for_json_keys(sym_key))
         # body = {"origin_user_id": origin_user_id, "sym_key": sym_key}
-        # get other user public key
 
         print("PUBLIC KEY RECEIVED FROM DEST USER")
 
@@ -165,7 +164,7 @@ class AppLogic:
     # Método que se encarga de enviar un mensaje cifrado de un usuario a otro
     def send_message_via_socket(self, receiver_id, message):
         print("MENSAJE ENVIADO")
-        # encript message
+        # Mensaje encriptado
         encrypted_message = self.encryption.get_encrypted_body(
             message, "sym", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(str(receiver_id))), str(self.user_id))
 
@@ -274,7 +273,7 @@ class AppLogic:
 
                 display_chat()
 
-            # token expired
+            # token expirado
             else:
                 print("session token has expired")
                 log_out(True)
@@ -287,8 +286,6 @@ class AppLogic:
             return
 
     def sendClientKeysToServer(self, password, user_id):
-
-        # Generate new public and private key using user password
         # Primero generamos la clave simétrica del cliente
         key = self.encryption.generate_symetric_key()
         print("THIS IS THE KEY IN THE CLIENT:", key)
@@ -328,10 +325,12 @@ class AppLogic:
         requests.post(
             f"{SERVER}/logout", json=body_encrypted)
 
-        # delete server sym
+        # borramos clave simétrica del server
         if self.json_keys != None:
             self.json_keys.delete_entry("server")
-        # delete own asym keys
+        # borramos la clave asimétrica propia
+
+        # TODO:REGENERATE
         self.encryption.generate_asym_keys()
 
         # self.encryption.regenerate_keys_asym()
@@ -457,7 +456,7 @@ class UI:
                 print(f"Got a message from {origin_user_name}: {message}")
                 self.display_message(origin_user_name, message, "other")
 
-        # Call every 500ms
+        # LLamada cada 500ms
         self.root.after(500, self.check_for_messages)
 
     # Verifica si hay un nuevo registro y si es correcto pasa a la ventana de chats
@@ -475,7 +474,7 @@ class UI:
                 self.load_chat(self.current_chat_user_id,
                                self.current_chat_user_name)
 
-         # Call every 1000ms
+         # LLamada cada 1000ms
         self.root.after(1000, self.check_for_new_registrations)
 
     def ask_for_password(self):
@@ -557,7 +556,7 @@ class UI:
         self.user_list_frame.pack(
             side=tk.LEFT, fill=tk.Y, expand=False)
 
-        # load users from database
+        # Cargamos los usuarios desde la base de datos
         self.users = self.app_logic.getAllUsers()
         # ["Alice", "Bob", "Charlie charlie charlie", "Dave"]
 
@@ -567,7 +566,7 @@ class UI:
                  bg="lightgray", font=("Vedana", 9, "bold")).pack(pady=10, padx=3)
 
         for user in self.users:
-            # user[0] is the id and user[1] is the name
+            # user[0] es el id y user[1] es el nombre
             button = tk.Button(self.user_list_frame, text=user[1],
                                command=lambda u=user: self.load_chat(u[0], u[1]))
             button.pack(fill=tk.X, pady=0, padx=20)
@@ -575,7 +574,7 @@ class UI:
             # TODO:This can be used to change their colors later
             # self.user_buttons.append(button)
 
-        # Chat display frame
+        # Chat display
         self.chat_display_frame = tk.Frame(self.root, bg="white")
 
         self.chat_display_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -586,7 +585,7 @@ class UI:
         self.chat_label = tk.Label(
             self.header_frame, text=f"Hi {self.app_logic.username}! Select a user to start chatting", bg="white", font=("Vedana", 14, "bold"))
 
-        # Add padding to separate the label from the button
+        # Añadiendo padding para separar
         self.chat_label.pack(side=tk.LEFT, padx=(10, 10))
 
         self.log_out_button = tk.Button(
@@ -597,7 +596,7 @@ class UI:
             self.chat_display_frame, state=tk.DISABLED, wrap=tk.WORD, relief="solid", bd=1)
         self.chat_text.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        # Message entry frame
+        # Frame del mensaje de entrada
         self.message_frame = tk.Frame(self.chat_display_frame, bg="white")
         self.message_frame.pack(fill=tk.X, padx=10, pady=7)
 
@@ -651,17 +650,14 @@ class UI:
             messagebox.showwarning(
                 "Warning", "The other user must be connected to innitiate an end to end chat")
             return None
-        # Update focused chat on the server
+        # Actualiza focused_chat en el server
         self.app_logic.update_focused_chat(self.current_chat_user_id)
 
-        # exchange private key if it has not been done
-
-        # print("END EXCHANGE: ", sym_key)
-        # Update the UI to reflect the selected chat
+        # Cambiamos el chat activo
         self.chat_label.config(
             text=f"Hi {self.app_logic.username}! Chatting with {name}")
 
-        # Clear the chat window
+        # Limpiamos el chat display
         self.chat_text.config(state=tk.NORMAL)
         self.chat_text.delete("1.0", tk.END)
 
@@ -685,7 +681,6 @@ class UI:
 
             self.display_message(sender_name, decrypted_message, origin)
 
-        # Disable the chat window for new messages
         self.chat_text.config(state=tk.DISABLED)
 
 # display para salir de la sesión
@@ -716,7 +711,7 @@ class UI:
         result = self.app_logic.login(username, password)
         # print(result["message"])
 
-        # After the login logic completes, update the UI in the main thread
+        # Después de completar la lógica del login, actualizamos la UI en el hilo principal
         if result["status"]:
             self.display_chat()
         else:
