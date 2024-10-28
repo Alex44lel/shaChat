@@ -1,13 +1,20 @@
 env
 src/tests-ignorar
 src/server/shachat.db
-src/server/private_asym.pem
-src/server/public_asym.pem
+src/server/private_asym_pre.pem
+src/server/public_asym_pre.pem
+src/server/private_asym_[0-9].pem
+src/server/public_asym_[0-9].pem
 src/server/json_keys.json
 
 
-src/client/json_keys_[0-9]*.json
-src/client/private_asym.pem
-src/client/public_asym.pem
+src/client/private_asym_[0-9].pem
+src/client/public_asym_[0-9].pem
+src/client/json_keys_[0-9].json
+src/client/private_asym_pre.pem
+src/client/public_asym_pre.pem
 src/client/session_token.json
 
+src/__pycache__/
+src/client/__pycache__/
+src/server/__pycache__/

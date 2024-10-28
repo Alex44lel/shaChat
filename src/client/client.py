@@ -10,6 +10,7 @@ import os
 import threading
 import socketio
 from collections import deque
+from tkinter.simpledialog import askstring
 
 
 SERVER = "http://localhost:5000"
@@ -48,7 +49,7 @@ class AppLogic:
         @self.socket.event
         def connect():
             print("Socket has been connected")
-            self.sendClientKeysToServer()
+            # sendKeys?
 
         @self.socket.event
         def disconnect():
@@ -64,7 +65,7 @@ class AppLogic:
         def on_message(data):
 
             decrypted_message = self.encryption.decrypt_body(
-                data["message"], "sym", "json", self.json_keys.search_entry(str(data["origin_user_id"])))
+                data["message"], "sym", "json", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(str(data["origin_user_id"]))))
 
             self.message_queue.append({'origin_user_id': data['origin_user_id'], "origin_user_name": data['origin_user_name'],
                                        'message': decrypted_message})
@@ -76,7 +77,8 @@ class AppLogic:
             sym_key = self.encryption.asymmetric_decrypt(
                 data["cypher_sym_key"])
 
-            self.json_keys.add_entry(data["origin_user_id"], sym_key)
+            self.json_keys.add_entry(
+                data["origin_user_id"], self.encryption.encrypt_for_json_keys(sym_key))
 
         try:
 
@@ -86,10 +88,11 @@ class AppLogic:
             print("Unable to connect to the socket:", e)
 
     def getOrExchangeSymKeysEndToEnd(self, dest_user_id):
+
         val = self.json_keys.search_entry(str(dest_user_id))
         if val:
             print("EXCHANGE WAS ALREADY PRODUCED")
-            return self.json_keys.search_entry(str(dest_user_id))
+            return self.encryption.asymmetric_decrypt(val)
 
         response = requests.get(
             f"{SERVER}/get-public-key-from-target-user/{dest_user_id}")
@@ -100,7 +103,8 @@ class AppLogic:
             return False
 
         sym_key = self.encryption.generate_symetric_key()
-        self.json_keys.add_entry(str(dest_user_id), sym_key)
+        self.json_keys.add_entry(
+            str(dest_user_id), self.encryption.encrypt_for_json_keys(sym_key))
         # body = {"origin_user_id": origin_user_id, "sym_key": sym_key}
         # get other user public key
 
@@ -121,7 +125,7 @@ class AppLogic:
 
         if response.status_code == 200:
             response_body = self.encryption.decrypt_body(
-                response, "sym", "response", self.json_keys.search_entry("server"))
+                response, "sym", "response", self.encryption.asymmetric_decrypt(self.json_keys.search_entry("server")))
             return response_body.get("all_users")
         else:
             print("unable to get all users")
@@ -130,7 +134,7 @@ class AppLogic:
         print("MENSAJE ENVIADO")
         # encript message
         encrypted_message = self.encryption.get_encrypted_body(
-            message, "sym", self.json_keys.search_entry(str(receiver_id)), str(self.user_id))
+            message, "sym", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(str(receiver_id))), str(self.user_id))
 
         if self.socket:
             self.socket.emit('message_sent', {
@@ -166,8 +170,8 @@ class AppLogic:
             print(f"Error fetching conversation: {e}")
             return []
 
-    def checkSessionToken(self, display_login, display_chat, log_out):
-
+    def checkSessionToken(self, display_login, display_chat, log_out, ask_password):
+        print("CHECKING TOKEN...")
         try:
             with open("session_token.json", "r") as session_token_file:
                 data = json.load(session_token_file)
@@ -189,12 +193,27 @@ class AppLogic:
             self.username = response_body.get("username")
             self.user_id = response_body.get("user_id")
             if response.status_code == 200:
+                self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
+
+                password = ask_password()
+                if not password:
+                    log_out(True)
+                    return
+
+                try:
+                    self.sendClientKeysToServer(password, self.user_id)
+                    print("sibueno")
+
+                except Exception as e:
+                    print("nobueno:", "-", e)
+                    log_out(True)
+                    return
+
                 self.session_token = session_token
                 print("session is valid")
-                self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
                 self.encryption.owner = self.username
                 threading.Thread(target=self.connect_to_socket).start()
-                self.sendClientKeysToServer()
+
                 display_chat()
 
             else:
@@ -207,10 +226,15 @@ class AppLogic:
             display_login()
             return
 
-    def sendClientKeysToServer(self):
+    def sendClientKeysToServer(self, password, user_id):
         # TODO: ENCRYPT USING ASSYMETRIC
+
+        # Generate new public and private key using user password
+
         key = self.encryption.generate_symetric_key()
         print("THIS IS THE KEY IN THE CLIENT:", key)
+
+        self.encryption.generate_logged_asymetric(password, user_id)
         public_key = self.encryption.export_public_key(
         )
         body = {"username": self.username,
@@ -219,31 +243,34 @@ class AppLogic:
         body_encrypted = self.encryption.get_encrypted_body(
             body, "asym", self.server_public_key)
         body_encrypted["public_key"] = public_key
+
         response = requests.post(
             f"{SERVER}/receive-client-keys", json=body_encrypted)
 
         if response.status_code == 200:
-            self.json_keys.add_entry("server", key)
-
+            self.json_keys.add_entry(
+                "server", self.encryption.encrypt_for_json_keys(key))
         return [response.status_code, response.json().get('message')]
 
     def logout(self):
         body = {"session_token": self.session_token, "user_id": self.user_id}
         body_encrypted = self.encryption.get_encrypted_body(
             body, "asym", self.server_public_key)
-        body_encrypted["user_public_key"] = self.encryption.export_public_key(
-        )
+
         # TODO: ENCRYPT USING ASSYMETRIC
-        response = requests.post(
+        requests.post(
             f"{SERVER}/logout", json=body_encrypted)
-        response_body = self.encryption.decrypt_body(
-            response, "asym", "response")
 
         # delete server sym
         if self.json_keys != None:
             self.json_keys.delete_entry("server")
         # delete own asym keys
-        self.encryption.regenerate_keys_asym()
+
+        # TODO:REGENERATE
+        self.encryption.generate_asym_keys()
+
+        # self.encryption.regenerate_keys_asym()
+
         # set everything to nonw
         self.session_token = None
         self.username = None
@@ -260,6 +287,7 @@ class AppLogic:
         body = {"username": username, "password": password}
         body_encrypted = self.encryption.get_encrypted_body(
             body, "asym", self.server_public_key)
+
         body_encrypted["user_public_key"] = self.encryption.export_public_key(
         )
 
@@ -282,7 +310,7 @@ class AppLogic:
                 json.dump({"session_token": self.session_token},
                           session_token_file)
             self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
-            result = self.sendClientKeysToServer()
+            result = self.sendClientKeysToServer(password, self.user_id)
             threading.Thread(target=self.connect_to_socket).start()
             if result[0] != 200:
                 return {"status": 0, "message": result[1]}
@@ -319,7 +347,7 @@ class UI:
         self.current_chat_user_name = None
 
         self.app_logic.checkSessionToken(
-            self.display_login, self.display_chat, self.log_out)
+            self.display_login, self.display_chat, self.log_out, self.ask_for_password)
 
         self.check_for_messages()
         self.check_for_new_registrations()
@@ -350,6 +378,13 @@ class UI:
                                self.current_chat_user_name)
 
         self.root.after(1000, self.check_for_new_registrations)
+
+    def ask_for_password(self):
+        password = askstring("Password Required", "Enter your password:",
+                             show='*')
+        if password is None:
+            return ""
+        return password
 
     def clear_screen(self):
         for widget in self.root.winfo_children():
@@ -521,7 +556,7 @@ class UI:
             origin_user_id = message_data["origin_user_id"]
 
             decrypted_message = self.app_logic.encryption.decrypt_body(
-                message_data["message"], "sym", "json", self.app_logic.json_keys.search_entry(str(self.current_chat_user_id)))
+                message_data["message"], "sym", "json", self.app_logic.encryption.asymmetric_decrypt(self.app_logic.json_keys.search_entry(str(self.current_chat_user_id))))
 
             if str(origin_user_id) == str(
                     self.app_logic.user_id):
@@ -536,7 +571,7 @@ class UI:
         # Disable the chat window for new messages
         self.chat_text.config(state=tk.DISABLED)
 
-#display para salir de la sesión
+# display para salir de la sesión
     def log_out(self, session_check=False):
         self.display_loading()
         log_out_thread = threading.Thread(

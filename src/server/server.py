@@ -59,7 +59,10 @@ class ChatApp:
         def getPublicKeyFromTargetUser(dest_user_id):
             try:
                 print(self.public_keys.keys())
-                key = self.public_keys[dest_user_id]
+                if dest_user_id in self.connected_users:
+                    key = self.public_keys[dest_user_id]
+                else:
+                    raise Exception
                 return jsonify({"public_key": key}), 200
             except Exception:
                 return jsonify({"message": "User must be connected to initiate encripted chat"}), 400
@@ -83,7 +86,9 @@ class ChatApp:
                     sym_key, username))
                 self.db_conexion.commit()
                 # sym key is stored on a json for quick access and on databse as well, might delete database storage later
-                self.json_keys.add_entry(str(user_id), sym_key)
+
+                self.json_keys.add_entry(
+                    str(user_id), self.encryption.encrypt_for_json_keys(sym_key))
                 return jsonify({'message': 'Sym key received'}), 200
             except sqlite3.IntegrityError:
                 return jsonify({'message': 'Error saving sym key'}), 409
@@ -97,7 +102,7 @@ class ChatApp:
                 # print("THIS IS THE KEY IN THE SERVER:",self.json_keys.search_entry(user_id))
 
                 res = self.encryption.get_encrypted_body(
-                    {"all_users": result}, "sym", self.json_keys.search_entry(user_id), "server")
+                    {"all_users": result}, "sym", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(user_id)), "server")
 
                 return jsonify(res), 200
             except sqlite3.Error:
@@ -174,28 +179,25 @@ class ChatApp:
 
         @self.app.route('/logout', methods=['POST'])
         def logout():
-            user_public_key = request.get_json().get("user_public_key")
             data = self.encryption.decrypt_body(request, "asym", "request")
             session_token = data.get('session_token')
             user_id = data.get('user_id')
 
             if (user_id):
                 # delete symetric key
-                self.json_keys.delete_entry(user_id)
+                self.json_keys.delete_entry(str(user_id))
             try:
                 cursor = self.db_manager.execute(
                     'UPDATE users SET session_token=? WHERE session_token=?', (None, session_token))
                 if cursor.rowcount == 0:
                     raise ValueError("Session token not found.")
                 self.db_conexion.commit()
-                res_encrypted = self.encryption.get_encrypted_body(
-                    {"message": "Succesfully log out"}, "asym", user_public_key)
-                return jsonify(res_encrypted), 200
+
+                return jsonify({"message": "Succesfully log out"}), 200
 
             except Exception as e:
-                res_encrypted = self.encryption.get_encrypted_body(
-                    {"message": "Session token is invalid"}, "asym", user_public_key)
-                return jsonify(res_encrypted), 401
+
+                return jsonify({"message": "Session token is invalid"}), 401
 
             # delete user-server symetric key
             # delete session token from database
