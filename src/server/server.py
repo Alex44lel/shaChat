@@ -33,8 +33,7 @@ class ChatApp:
             password TEXT, 
             salt TEXT, 
             session_token TEXT, 
-            session_token_date TEXT, 
-            sym_key TEXT
+            session_token_date TEXT
             )
         ''')
 
@@ -111,9 +110,9 @@ class ChatApp:
 
             # Intentamos actualizar la tabla users en la base de datos, guardando la clave simétrica del cliente asociado al nombre de usuario.
             try:
-                self.db_manager.execute('UPDATE users SET sym_key=? WHERE username=?', (
-                    sym_key, username))
-                self.db_conexion.commit()
+                # self.db_manager.execute('UPDATE users SET sym_key=? WHERE username=?', (
+                #     sym_key, username))
+                # self.db_conexion.commit()
                 # sym key is stored on a json for quick access and on databse as well, might delete database storage later
 
                 self.json_keys.add_entry(
