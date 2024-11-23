@@ -1,11 +1,13 @@
 # Importa las funciones para menejar cifrado asimétrico con RSA y el esquema de relleno (padding), que es necesario para el cifrado RSA.
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
+
 # Importa funciones de serialización, que se usan para exportar e importar claves
 from cryptography.hazmat.primitives import serialization
 # Algoritmo para cifrar mensajes y verificar su autenticidad.
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives import hashes
-
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 import base64
 import json
 import os
@@ -191,7 +193,7 @@ class Encryption:
         nonce = os.urandom(12)
         encoded_nonce = base64.b64encode(nonce).decode(
             "utf-8")
-        
+
         # Additional data
         aad = aad.encode("utf-8")
         encoded_aad = base64.b64encode(aad).decode(
@@ -207,7 +209,7 @@ class Encryption:
 
         return [cypher_text_encoded, encoded_nonce, encoded_aad]
 
-    #Método de desencriptado simetrico
+    # Método de desencriptado simetrico
     def symmetric_decrypt(self, cypher_text_encoded, key, encoded_nonce, encoded_aad):
         # ADD LOG:
         self.log_message("Starting", "Decryption", len(
@@ -230,15 +232,16 @@ class Encryption:
         return original_text
 
     # Método de encriptación con clave pública
-    def asymmetric_encrypt_with_external_public_key(self, key_pem, text):
+    def asymmetric_encrypt_with_external_public_key(self, public_key, text):
         # ADD LOG:
         self.log_message("Starting", "Asymmetric Encryption",
                          2048, "RSA", text)
 
         # Carga la clave pública desde la cadena en formato PEM
-        public_key = serialization.load_pem_public_key(
-            key_pem.encode('utf-8')
-        )
+        if isinstance(public_key, str):
+            public_key = serialization.load_pem_public_key(
+                public_key.encode('utf-8')
+            )
 
         # Usa la clave pública para cifrar el texto, siendo PKCS1v15 el esquema de relleno para el cifrado, haciendo el proceso más seguro
         cipher_text = public_key.encrypt(
@@ -293,7 +296,7 @@ class Encryption:
     # Método que tiene como objetivo exportar la clave pública para que sea transmitida o almacenada.
 
     def export_public_key(self):
-        #Export in PEM format
+        # Export in PEM format
         public_key = self.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -344,9 +347,87 @@ class Encryption:
 
         return message_decrypted
 
-    # Método que se encarga de hashear una contraseña junto a un salt
-    def hash_salt(self, password, salt):
+    # ---------------SIGNING AND VERIFICATION----------------
+    # Metodo que firma
+    def sign(self, message):
+        self.log_message("Starting", f"Signing_message", 2048,
+                         "RSA", f"Message: {message}")
+        # Método que se encarga de hashear una contraseña junto a un salt
 
+        message_bytes = message.encode("utf-8")
+        signature = self.private_key.sign(
+            message_bytes,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+
+        self.log_message("End", f"Signing_message", 2048,
+                         "RSA", f"Signature: {message}")
+
+        return signature
+
+    def verify(self, message, signature, public_key=None):
+        self.log_message("Starting", f"Verifying_signature", 2048,
+                         "RSA", f"Message: {message}")
+
+        if not public_key:
+            public_key = self.public_key
+
+        message_bytes = message.encode("utf-8")
+
+        try:
+            public_key.verify(
+                signature,
+                message_bytes,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+
+        except Exception as e:
+            print("Signature is not valid: ", e)
+            self.log_message("End", f"Verifying_signature", 2048,
+                             "RSA", f"State: False")
+            return False
+
+        self.log_message("End", f"Verifying_signature", 2048,
+                         "RSA", f"State: True")
+        return True
+
+    # ------------------CERTIFICATE-------------------------
+    def generate_certificate_request(self, user_id):
+        # Generate a CSR
+        self.log_message("other", f"Generating certificate request", None,
+                         None, f"")
+        csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
+            # Provide various details about who we are.
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "ES"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Madrid"),
+            x509.NameAttribute(NameOID.GIVEN_NAME, str(user_id)),
+        ])).sign(self.private_key, hashes.SHA256())
+        # Write our CSR out to disk.
+        with open(f"../ac1/solicitudes/csr_{user_id}.pem", "wb") as f:
+            f.write(csr.public_bytes(serialization.Encoding.PEM))
+
+    def verify_certificate_and_get_public_key(self, certificate):
+
+        # verification....
+
+        # el certificado viene en un string base 64
+        cert_obj = x509.load_pem_x509_certificate(
+            base64.b64decode(certificate.encode("utf-8")))
+
+        public_key = cert_obj.public_key()
+
+        # public key object
+        return public_key
+
+    def hash_salt(self, password, salt):
         if salt is None:
             salt = os.urandom(32)
         else:

@@ -2,7 +2,7 @@ import sqlite3
 import uuid
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, join_room, leave_room, emit
-
+import base64
 from datetime import datetime, timedelta
 from encryption import Encryption
 from jsonManager import JsonManager
@@ -10,7 +10,6 @@ from jsonManager import JsonManager
 
 class ChatApp:
     def __init__(self):
-
         # Crea una instancia de la app Flask
         self.app = Flask(__name__)
         # Inicializamos Socket
@@ -20,6 +19,10 @@ class ChatApp:
 
         self.encryption = Encryption("SERVER")
         self.json_keys = JsonManager("json_keys.json")
+
+        server_password = input("introduce server password:\n")
+        self.encryption.generate_logged_asymetric(server_password, "server")
+
         # Establecemos conexión con la base de datos
         self.db_conexion = sqlite3.connect(
             "shachat.db", check_same_thread=False)
@@ -29,12 +32,13 @@ class ChatApp:
 
         self.db_manager.execute(
             '''CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY, 
-            username TEXT UNIQUE, 
-            password TEXT, 
-            salt TEXT, 
-            session_token TEXT, 
-            session_token_date TEXT
+            id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE,
+            password TEXT,
+            salt TEXT,
+            session_token TEXT,
+            session_token_date TEXT,
+            certificate TEXT
             )
         ''')
 
@@ -47,7 +51,8 @@ class ChatApp:
                 receiver_user_id INTEGER,
                 cypher_message TEXT,
                 encoded_nonce TEXT,
-                encoded_aad TEXT, 
+                encoded_aad TEXT,
+                signature TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -83,6 +88,7 @@ class ChatApp:
             try:
                 print(self.public_keys.keys())
                 if dest_user_id in self.connected_users:
+                    print("hii", dest_user_id, self.connected_users)
                     key = self.public_keys[dest_user_id]
                 else:
                     raise Exception
@@ -90,6 +96,40 @@ class ChatApp:
             # Si no la obtiene devuelve una excepción
             except Exception:
                 return jsonify({"message": "User must be connected to initiate encripted chat"}), 400
+
+        @self.app.route('/get-certificate-from-target-user/<string:dest_user_id>', methods=['GET'])
+        def getCertificateFromUser(dest_user_id):
+            try:
+                result = self.db_manager.execute(
+                    'SELECT certificate FROM users WHERE id = ?', (
+                        dest_user_id,)
+                ).fetchone()
+
+                if result:
+                    certificate = result[0]
+
+                else:
+                    raise Exception
+                return jsonify({"certificate": certificate}), 200
+            # Si no la obtiene devuelve una excepción
+            except Exception:
+                return jsonify({"message": "User must be connected to initiate encripted chat"}), 400
+
+        @self.app.route('/save_certificate', methods=['POST'])
+        def saveCertificate():
+            try:
+                certificate = request.get_json().get("certificate")
+                user_id = request.get_json().get("user_id")
+
+                self.db_manager.execute('UPDATE users SET certificate = ? WHERE id = ?', (
+                    certificate, user_id))
+                self.db_conexion.commit()
+
+                print("CERTIFICADO GUARDADO EN BBDD!")
+                return jsonify({'message': 'Cerificate saved succesfull'}), 201
+            except Exception as e:
+                print(e)
+                return jsonify({'message': f'Error in sql:{e}'}), 409
 
         @self.app.route('/receive-client-keys', methods=['POST'])
         # Permite que un cliente envie su clave simétrica al server
@@ -298,7 +338,7 @@ class ChatApp:
             # Consulta sql para recuperar todos los mensajes entre los dos usuarios y los ordena por timestamp
             try:
                 self.db_manager.execute('''
-                    SELECT origin_user_id, receiver_user_id, cypher_message, timestamp,encoded_nonce,encoded_aad
+                    SELECT origin_user_id, receiver_user_id, cypher_message, timestamp,encoded_nonce,encoded_aad,signature
                     FROM chats
                     WHERE (origin_user_id = ? AND receiver_user_id = ?)
                     OR (origin_user_id = ? AND receiver_user_id = ?)
@@ -315,8 +355,12 @@ class ChatApp:
                         'origin_user_id': msg[0],
                         'receiver_user_id': msg[1],
                         'message': {"cypher_message": msg[2], "encoded_nonce": msg[4], "encoded_aad": msg[5]},
-                        'timestamp': msg[3]
+                        'timestamp': msg[3],
+                        'signature': base64.b64encode(
+                            msg[6]).decode('utf-8')
                     })
+
+                print(conversation)
 
                 # Devolvemos conversation en formato json y el status de éxito.
                 return jsonify({'conversation': conversation}), 200
@@ -377,6 +421,7 @@ class ChatApp:
             message = data['message']
             origin_user_id = str(data['origin_user_id'])
             origin_user_name = data['origin_user_name']
+            signature = data['signature']
 
             print(
                 f"Message receive from {origin_user_name} to {receiver_id}")
@@ -387,13 +432,13 @@ class ChatApp:
             if receiver_id in self.focused_chats and self.focused_chats[receiver_id] == origin_user_id:
                 # Si se da la condición emitimos el envio del mensaje al receptor
                 emit('receive_message', {'origin_user_id': origin_user_id, "origin_user_name": origin_user_name,
-                                         'message': message}, room=receiver_id)
+                                         'message': message, "signature": signature}, room=receiver_id,)
 
             # Guarda mensaje en la base de datos
             self.db_manager.execute('''
-                INSERT INTO chats (origin_user_id, receiver_user_id, cypher_message, encoded_nonce, encoded_aad)
-                VALUES (?, ?, ?,?,?)
-            ''', (origin_user_id, receiver_id, message["cypher_message"], message["encoded_nonce"], message["encoded_aad"]))
+                INSERT INTO chats (origin_user_id, receiver_user_id, cypher_message, encoded_nonce, encoded_aad, signature)
+                VALUES (?, ?, ?,?,?,?)
+            ''', (origin_user_id, receiver_id, message["cypher_message"], message["encoded_nonce"], message["encoded_aad"], data["signature"]))
             self.db_conexion.commit()
 
             # TODO: we could notify

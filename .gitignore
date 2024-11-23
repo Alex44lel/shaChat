@@ -25,3 +25,5 @@ src/client2/session_token.json
 src/__pycache__/
 src/client/__pycache__/
 src/server/__pycache__/
+
+*.pem

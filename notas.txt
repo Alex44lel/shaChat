@@ -1,0 +1,36 @@
+como validar el certificado:
+
+- mirar que no está revocado, lo asumimos
+- mirar fecha desde y hasta
+- es la firma del certificado correcto
+- hace falta la clave publica de la autoridad que firma
+- no se necesitan entidades subordinadas
+- La clave publica y privada se genera cuando se registra, la publica tiene que ir en un certificado
+- solo crear una entidad de certificacion, solo hay una
+
+
+- owc criptography lab
+- tenemos que tener una autoridad c
+
+
+AC:
+
+solicitudes -> copiar la request al directorio solicitudes
+crls -> no lo vamos a usar, lista de revocacion de certificacion
+nuevoscerts -> cuando la autoridad firme la perticion genera el cert y lo guarda aqui
+privado -> clave privada autoridad de certificación
+serial -> un numerito, 01,02,74. cada vez que firmas un certificado se incrementa el numero de seria
+index.txt -> guarda una lista
+
+usamos el comando que para creat la autoridad, no copiar y pegar
+
+creamos la request directamente en la carpeta de solicituedes
+
+despues hacemos pasos 8 y 9, el 10 es para verificar. el 8 no hay que hacerlo
+
+
+
+el server y cliente tienen que estar certificados. Luego cada vez que use una clave publica tengo que usar el certificado
+en criptografy x.509. ahi esta la creacion y la verificacion
+
+https://cryptography.io/en/latest/hazmat/primitives/asymmetric/rsa/#verification

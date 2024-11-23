@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
-from jsonManager import JsonManager
 import requests
+from jsonManager import JsonManager
 from encryption import Encryption
 import json
 from tkinter import ttk
@@ -11,6 +11,7 @@ import threading
 import socketio
 from collections import deque
 from tkinter.simpledialog import askstring
+import base64
 
 
 SERVER = "http://localhost:44444"
@@ -70,18 +71,34 @@ class AppLogic:
         # Socket de escucha que se activa cuando se recive un mensaje
         @self.socket.on("receive_message")
         def on_message(data):
+            encrypted_message = data["message"]["cypher_message"]
+            signature = data["signature"]
+            # Coger clave pública del emisor
+            response = requests.get(
+                f"{SERVER}/get-certificate-from-target-user/{data['origin_user_id']}")
 
-            # Desciframos el mensaje
-            decrypted_message = self.encryption.decrypt_body(
-                data["message"], "sym", "json", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(str(data["origin_user_id"]))))
+            emisor_user_certificate = response.json().get("certificate")
 
-            # Lo añadimos a una cola de mensajes ya que ejecutamos los sockets otro pthread y esta es la forma en la que comunicamos los procesos
-            self.message_queue.append({'origin_user_id': data['origin_user_id'], "origin_user_name": data['origin_user_name'],
-                                       'message': decrypted_message})
+            public_key_object = self.encryption.verify_certificate_and_get_public_key(
+                emisor_user_certificate)
+
+            # obtener clave publica del certificado
+
+            # verificar la firma
+            state = self.encryption.verify(
+                encrypted_message, signature, public_key_object)
+
+            if state:
+                # Desciframos el mensaje
+                decrypted_message = self.encryption.decrypt_body(
+                    data["message"], "sym", "json", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(str(data["origin_user_id"]))))
+
+                # Lo añadimos a una cola de mensajes ya que ejecutamos los sockets otro pthread y esta es la forma en la que comunicamos los procesos
+                self.message_queue.append({'origin_user_id': data['origin_user_id'], "origin_user_name": data['origin_user_name'],
+                                           'message': decrypted_message})
 
         # Socket de escucha para el envio de claves simétricas
         # Debería ser symetric key
-
         @self.socket.on("send_private_key")
         def on_send_private_key(data):
             print(f"Received private_key")
@@ -114,11 +131,19 @@ class AppLogic:
             return self.encryption.asymmetric_decrypt(val)
 
         # Si no se ha producido le hace una petición GET al server para que ocurra el intercambio, guardamos la clave en response en formato json
+
         response = requests.get(
-            f"{SERVER}/get-public-key-from-target-user/{dest_user_id}")
+            f"{SERVER}/get-certificate-from-target-user/{dest_user_id}")
+
+        emisor_user_certificate = response.json().get("certificate")
+
+        emisor_user_public_key = self.encryption.verify_certificate_and_get_public_key(
+            emisor_user_certificate)
 
         # Obtenemos la clave pública del diccionario
         dest_user_public_key = response.json().get("public_key")
+
+        print("RECEIVED PUBLIC KEY: ", dest_user_public_key)
 
         # En este punto vemos si ha habido error para obtener la clave
         if response.status_code == 400:
@@ -134,7 +159,7 @@ class AppLogic:
 
         # Ciframos la clave simétrica
         cypher_sym_key = self.encryption.asymmetric_encrypt_with_external_public_key(
-            dest_user_public_key, sym_key)
+            emisor_user_public_key, sym_key)
 
         print("SOCKET EMMITED")
 
@@ -168,10 +193,13 @@ class AppLogic:
         encrypted_message = self.encryption.get_encrypted_body(
             message, "sym", self.encryption.asymmetric_decrypt(self.json_keys.search_entry(str(receiver_id))), str(self.user_id))
 
+        # firmamos
+        signature = self.encryption.sign(encrypted_message["cypher_message"])
+
         # Comprueba si el socket está activo, si lo está se procederá al envio del mensaje
         if self.socket:
             self.socket.emit('message_sent', {
-                             "origin_user_id": self.user_id, "origin_user_name": self.username, 'receiver_id': receiver_id, "message": encrypted_message})
+                             "origin_user_id": self.user_id, "origin_user_name": self.username, 'receiver_id': receiver_id, "message": encrypted_message, "signature": signature})
 
     # Método para emitir la actualización el chat en el que se encuentra el usuario activo a través de un socket
     def update_focused_chat(self, current_chat_id):
@@ -213,6 +241,11 @@ class AppLogic:
         except Exception as e:
             print(f"Error fetching conversation: {e}")
             return []
+
+    def generateCertificateRequest(self):
+        if not os.path.exists(f"cert_{self.user_id}.pem"):
+            self.encryption.generate_certificate_request(
+                self.user_id)
 
     def checkSessionToken(self, display_login, display_chat, log_out, ask_password):
         print("CHECKING TOKEN...")
@@ -260,6 +293,8 @@ class AppLogic:
                     self.sendClientKeysToServer(password, self.user_id)
                     print("sibueno")
 
+                    # it will only send a request if the certificate does not exist
+                    self.generateCertificateRequest()
                 except Exception as e:
                     print("nobueno:", "-", e)
                     log_out(True)
@@ -289,7 +324,7 @@ class AppLogic:
         # Primero generamos la clave simétrica del cliente
         key = self.encryption.generate_symetric_key()
         print("THIS IS THE KEY IN THE CLIENT:", key)
-        # Obtenemos la clave pública del cliente
+        # Generamos claves asymetricas asociadas al cliente solo si no existen
         self.encryption.generate_logged_asymetric(password, user_id)
 
         public_key = self.encryption.export_public_key(
@@ -315,6 +350,9 @@ class AppLogic:
 
     # Método para cerrar sesión del cliente en el servidor
     def logout(self):
+        if self.socket:
+            self.socket.disconnect()
+            self.socket = None
         # Cuerpo con forma de diccionario donde se almacenan el session_token y el id de usuario
         body = {"session_token": self.session_token, "user_id": self.user_id}
         # Encriptamos el body con la clave pública del servidor
@@ -385,11 +423,14 @@ class AppLogic:
             # necesarias para la comunicación segura entre el cliente y el servidor.
             self.json_keys = JsonManager(f"json_keys_{self.user_id}.json")
 
-            # Generamos las claves del cliente y se envian al server
-            # Aquí se crea un thread para ejecutar el socket entre el cliente y el servidor
-
+            # Generamos las claves asimetricas del cliente (si no estaban) y se envian al server
             result = self.sendClientKeysToServer(password, self.user_id)
 
+            # Genermaos certificado si no existe
+            # checkerar que no existe
+            self.generateCertificateRequest()
+
+            # Aquí se crea un thread para ejecutar el socket entre el cliente y el servidor
             threading.Thread(target=self.connect_to_socket).start()
             if result[0] != 200:
                 return {"status": 0, "message": result[1]}
@@ -547,7 +588,46 @@ class UI:
         tk.Button(self.root, text="Login",
                   command=self.display_login).pack(pady=12)
 
+    def show_certificate_popup(self):
+        self.cert_popup = tk.Toplevel(self.root)
+        self.cert_popup.title("Generando certificado")
+        self.cert_popup.geometry("400x150")
+        self.cert_popup.transient(self.root)
+        self.cert_popup.grab_set()
+
+        tk.Label(self.cert_popup, text="Generando certificado...",
+                 font=("Verdana", 12)).pack(pady=20)
+        tk.Label(self.cert_popup, text="Espera a que termine el proceso...", font=(
+            "Verdana", 10)).pack(pady=10)
+
+        self.progress = ttk.Progressbar(self.cert_popup, mode='indeterminate')
+        self.progress.pack(pady=10, padx=20)
+        self.progress.start()
+
+        self.check_certificate_file()
+
+    def check_certificate_file(self):
+        cert_path = f"cert_{self.app_logic.user_id}.pem"
+        if os.path.exists(cert_path):
+            self.progress.stop()
+            self.cert_popup.destroy()
+
+            with open(f"cert_{self.app_logic.user_id}.pem", "rb") as cert_file:
+                cert_data = cert_file.read()
+
+                cert_data_base64 = base64.b64encode(
+                    cert_data).decode('utf-8')
+                response = requests.post(
+                    f"{SERVER}/save_certificate", json={"certificate": cert_data_base64, "user_id": self.app_logic.user_id})
+
+                if response.status_code != 201:
+                    raise Exception(
+                        "unable to save certificate on bbdd")
+        else:
+            self.cert_popup.after(500, self.check_certificate_file)
+
     # Método para configurar y mostrar la interfaz de usuario del chat
+
     def display_chat(self):
         self.clear_screen()
         # Contenedor que contendrá la lista de usuarios disponibles para chatear
@@ -609,6 +689,9 @@ class UI:
             self.message_frame, text="Send", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
 
+        if not os.path.exists(f"cert_{self.app_logic.user_id}.pem"):
+            self.show_certificate_popup()
+
     # Se encarga de gestionar el envio de mensajes
     def send_message(self):
         # Obtiene el contenido del cuadro de texto donde el cliente escribe el mensaje
@@ -667,6 +750,28 @@ class UI:
         # Desciframos los mensajes y en función del emisor o el receptor añadimos esa cabezera para luego mostrarlo
         for message_data in conversation:
             origin_user_id = message_data["origin_user_id"]
+            signature_bytes = base64.b64decode(
+                message_data["signature"].encode("utf-8"))
+
+            # Verfiying signature of my own messages
+            if str(origin_user_id) == str(
+                    self.app_logic.user_id):
+                self.app_logic.encryption.verify(
+                    message_data["message"]["cypher_message"], signature_bytes, None)
+
+            else:  # verificamos signature de los mensajes recibidos
+
+                # Coger clave pública del emisor
+                response = requests.get(
+                    f"{SERVER}/get-certificate-from-target-user/{message_data['origin_user_id']}")
+
+                emisor_user_certificate = response.json().get("certificate")
+
+                emisor_user_public_key = self.app_logic.encryption.verify_certificate_and_get_public_key(
+                    emisor_user_certificate)
+
+                self.app_logic.encryption.verify(
+                    message_data["message"]["cypher_message"], signature_bytes, emisor_user_public_key)
 
             decrypted_message = self.app_logic.encryption.decrypt_body(
                 message_data["message"], "sym", "json", self.app_logic.encryption.asymmetric_decrypt(self.app_logic.json_keys.search_entry(str(self.current_chat_user_id))))
