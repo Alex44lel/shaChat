@@ -72,7 +72,7 @@ class ChatApp:
 
     # Inicia el servidor Flask y habilita el soporte de WebSockets usando SocketIO
     def run(self):
-        self.socketio.run(self.app, host="localhost", port=44444, debug=True)
+        self.socketio.run(self.app, host="localhost", port=44444, debug=False)
 
     def _create_restfull_routes(self):
         @self.app.route('/get-public-key', methods=['GET'])
@@ -97,13 +97,17 @@ class ChatApp:
             except Exception:
                 return jsonify({"message": "User must be connected to initiate encripted chat"}), 400
 
-        @self.app.route('/get-certificate-from-target-user/<string:dest_user_id>', methods=['GET'])
-        def getCertificateFromUser(dest_user_id):
+        @self.app.route('/get-certificate-from-target-user/<string:dest_user_id>/<string:exchanging>', methods=['GET'])
+        def getCertificateFromUser(dest_user_id, exchanging):
             try:
+                if exchanging == "0" and dest_user_id not in self.connected_users:
+                    raise Exception("User not connected")
                 result = self.db_manager.execute(
                     'SELECT certificate FROM users WHERE id = ?', (
                         dest_user_id,)
                 ).fetchone()
+
+                # check if the dest_user_id is connected, if not, raise exception
 
                 if result:
                     certificate = result[0]

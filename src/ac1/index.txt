@@ -1,2 +1,0 @@
-V	251123164314Z		0C	unknown	/C=ES/ST=Madrid/GN=1
-V	251123164551Z		0D	unknown	/C=ES/ST=Madrid/GN=2

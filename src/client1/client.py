@@ -75,7 +75,7 @@ class AppLogic:
             signature = data["signature"]
             # Coger clave pública del emisor
             response = requests.get(
-                f"{SERVER}/get-certificate-from-target-user/{data['origin_user_id']}")
+                f"{SERVER}/get-certificate-from-target-user/{data['origin_user_id']}/1")
 
             emisor_user_certificate = response.json().get("certificate")
 
@@ -133,7 +133,10 @@ class AppLogic:
         # Si no se ha producido le hace una petición GET al server para que ocurra el intercambio, guardamos la clave en response en formato json
 
         response = requests.get(
-            f"{SERVER}/get-certificate-from-target-user/{dest_user_id}")
+            f"{SERVER}/get-certificate-from-target-user/{dest_user_id}/0")
+
+        if response.status_code == 400:
+            return False
 
         emisor_user_certificate = response.json().get("certificate")
 
@@ -146,8 +149,6 @@ class AppLogic:
         print("RECEIVED PUBLIC KEY: ", dest_user_public_key)
 
         # En este punto vemos si ha habido error para obtener la clave
-        if response.status_code == 400:
-            return False
 
         # Se genera la clave simétrica entre los usuarios y la guardamos en json en local
         sym_key = self.encryption.generate_symetric_key()
@@ -763,7 +764,7 @@ class UI:
 
                 # Coger clave pública del emisor
                 response = requests.get(
-                    f"{SERVER}/get-certificate-from-target-user/{message_data['origin_user_id']}")
+                    f"{SERVER}/get-certificate-from-target-user/{message_data['origin_user_id']}/1")
 
                 emisor_user_certificate = response.json().get("certificate")
 

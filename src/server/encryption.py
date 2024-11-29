@@ -33,10 +33,18 @@ class Encryption:
 
         # Genera las claves asimetricas
         self.generate_asym_keys()
+        self._load_public_key_ac_from_cert_path("../ac1/ac1cert.pem")
 
-    from termcolor import colored
+    def _load_public_key_ac_from_cert_path(self, path):
+        with open(path, "rb") as cert_file:
+            cert_data = cert_file.read()
+
+        cert_obj = x509.load_pem_x509_certificate(cert_data)
+
+        self.public_key_object_ac1 = cert_obj.public_key()
 
     # Método para cargar mensajes, se le atribuyen ciertas características
+
     def log_message(self, state=None, action_type=None, key_length=None, algorithm=None, message=None, level="INFO"):
 
         # Así será printeado el owner
@@ -372,7 +380,7 @@ class Encryption:
         return signature
 
     def verify(self, message, signature, public_key=None):
-        self.log_message("Starting", f"Verifying_signature", 2048,
+        self.log_message("Starting", f"Verifying_signature of a message", 2048,
                          "RSA", f"Message: {message}")
 
         if not public_key:
@@ -393,7 +401,7 @@ class Encryption:
 
         except Exception as e:
             print("Signature is not valid: ", e)
-            self.log_message("End", f"Verifying_signature", 2048,
+            self.log_message("End", f"Verifying_signature of a message", 2048,
                              "RSA", f"State: False")
             return False
 
@@ -417,17 +425,32 @@ class Encryption:
             f.write(csr.public_bytes(serialization.Encoding.PEM))
 
     def verify_certificate_and_get_public_key(self, certificate):
-
-        # verification....
-
         # el certificado viene en un string base 64
         cert_obj = x509.load_pem_x509_certificate(
             base64.b64decode(certificate.encode("utf-8")))
 
-        public_key = cert_obj.public_key()
+        # verification....
+        self.log_message("Starting", f"Verifying_signature of client certificate", 2048,
+                         "RSA", f"Message:")
 
-        # public key object
-        return public_key
+        try:
+            self.public_key_object_ac1.verify(
+                cert_obj.signature,
+                cert_obj.tbs_certificate_bytes,
+                cert_obj.signature_algorithm_parameters,
+                cert_obj.signature_hash_algorithm
+            )
+            public_key = cert_obj.public_key()
+            # public key object
+            self.log_message("End", f"Verifying_signature of client certificate", 2048,
+                             "RSA", f"State: True")
+            return public_key
+
+        except Exception as e:
+            print("Signature is not valid: ", e)
+            self.log_message("End", f"Verifying_signature", 2048,
+                             "RSA", f"State: False")
+            return False
 
     def hash_salt(self, password, salt):
         if salt is None:
