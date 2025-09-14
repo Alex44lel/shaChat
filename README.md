@@ -57,7 +57,7 @@ The application consists of several key components:
 3. **Set up the Certificate Authority (Optional)**
    ```bash
    cd src/ac1
-   # Follow the certificate generation process if needed
+ 
    ```
 
 ## Usage
