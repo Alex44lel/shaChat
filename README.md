@@ -106,21 +106,6 @@ The server will start on `http://localhost:44444` by default.
 
 3. **Login** with your credentials to start chatting securely
 
-## File Structure
-
-```
-shaChat/
-├── src/
-│   ├── server/           # Server-side code
-│   │   ├── server.py     # Main server application
-│   │   ├── encryption.py # Encryption utilities
-│   │   └── jsonManager.py # JSON/key management
-│   ├── client1/          # Primary client
-│   ├── client2/          # Secondary client (for testing)
-│   └── ac1/              # Certificate Authority
-├── requirements.txt      # Python dependencies
-└── notas.txt            # Development notes (Spanish)
-```
 
 ## Configuration
 
@@ -144,22 +129,3 @@ The application uses several configuration files:
 - **Session Management**: Secure token-based session handling
 - **Database Security**: User passwords are properly salted and hashed
 
-## Contributing
-
-This is a educational/demonstration project focusing on secure communication protocols. Feel free to explore the code and learn from the implementation!
-
-## Technical Stack
-
-- **Backend**: Python, Flask, Flask-SocketIO
-- **Frontend**: Tkinter (Python GUI)
-- **Database**: SQLite3
-- **Cryptography**: RSA, ChaCha20Poly1305, X.509 certificates
-- **Communication**: WebSockets, HTTP REST API
-
-## License
-
-This project is for educational purposes. Please ensure you comply with local laws and regulations when implementing cryptographic software.
-
----
-
-*Built with security and privacy in mind* 🔐
